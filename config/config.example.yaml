@@ -1,0 +1,23 @@
+server:
+  port: 8080
+  mode: "debug"  # debug or release
+  auth_enabled: true  # enable/disable authentication
+
+database:
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: "your-password"
+  dbname: "lauth"
+  sslmode: "disable"
+
+redis:
+  host: "localhost"
+  port: 6379
+  password: ""  # Redis password, leave empty if not set
+  db: 0        # Redis database number
+
+jwt:
+  secret: "your-secret-key-please-change-in-production"  # JWT signing key
+  access_token_expire: 2  # Access token expiration time (hours)
+  refresh_token_expire: 168  # Refresh token expiration time (hours) - 7 days 
