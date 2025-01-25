@@ -30,6 +30,9 @@ type User struct {
 	App       *App       `gorm:"foreignKey:AppID" json:"-"`                                                          // 关联的应用
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
+
+	// 角色关联
+	Roles []Role `gorm:"many2many:user_roles;" json:"roles,omitempty"`
 }
 
 // BeforeCreate GORM的钩子，在创建记录前自动生成UUID和加密密码

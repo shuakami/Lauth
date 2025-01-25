@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"net/http"
 	"time"
 
 	v1 "lauth/api/v1"
@@ -12,8 +11,10 @@ import (
 	"lauth/internal/service"
 	"lauth/pkg/config"
 	"lauth/pkg/database"
+	"lauth/pkg/engine"
 	"lauth/pkg/middleware"
 	"lauth/pkg/redis"
+	"lauth/pkg/router"
 
 	"github.com/gin-gonic/gin"
 )
@@ -36,7 +37,16 @@ func main() {
 	log.Printf("Successfully connected to database")
 
 	// 自动迁移数据库表
-	if err := db.AutoMigrate(&model.App{}, &model.User{}); err != nil {
+	if err := db.AutoMigrate(
+		&model.App{},
+		&model.User{},
+		&model.Role{},
+		&model.Permission{},
+		&model.UserRole{},
+		&model.RolePermission{},
+		&model.Rule{},
+		&model.RuleCondition{},
+	); err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
 
@@ -62,6 +72,9 @@ func main() {
 	// 初始化仓储层
 	appRepo := repository.NewAppRepository(db)
 	userRepo := repository.NewUserRepository(db)
+	roleRepo := repository.NewRoleRepository(db)
+	permissionRepo := repository.NewPermissionRepository(db)
+	ruleRepo := repository.NewRuleRepository(db)
 
 	// 初始化Token服务
 	tokenService := service.NewTokenService(
@@ -71,38 +84,48 @@ func main() {
 		time.Duration(cfg.JWT.RefreshTokenExpire)*time.Hour,
 	)
 
+	// 初始化规则引擎
+	ruleParser := engine.NewParser()
+	ruleExecutor := engine.NewExecutor()
+	ruleCache := engine.NewCache(redisClient)
+	ruleEngine := engine.NewEngine(ruleParser, ruleExecutor, ruleCache, ruleRepo)
+
 	// 初始化服务层
 	appService := service.NewAppService(appRepo)
 	userService := service.NewUserService(userRepo, appRepo)
 	authService := service.NewAuthService(userRepo, tokenService)
+	roleService := service.NewRoleService(roleRepo, permissionRepo)
+	permissionService := service.NewPermissionService(permissionRepo, roleRepo)
+	ruleService := service.NewRuleService(ruleRepo, ruleEngine)
 
 	// 创建默认的gin引擎
 	r := gin.Default()
 
-	// 基础健康检查路由
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "ok",
-			"service": "lauth",
-		})
-	})
-
 	// 初始化认证中间件
 	authMiddleware := middleware.NewAuthMiddleware(tokenService, cfg.Server.AuthEnabled)
 
-	// 注册API路由
-	api := r.Group("/api/v1")
-	{
-		appHandler := v1.NewAppHandler(appService)
-		appHandler.Register(api, authMiddleware)
+	// 初始化处理器
+	appHandler := v1.NewAppHandler(appService)
+	userHandler := v1.NewUserHandler(userService)
+	authHandler := v1.NewAuthHandler(authService)
+	roleHandler := v1.NewRoleHandler(roleService)
+	permissionHandler := v1.NewPermissionHandler(permissionService)
+	ruleHandler := v1.NewRuleHandler(ruleService)
 
-		userHandler := v1.NewUserHandler(userService)
-		userHandler.Register(api, authMiddleware)
+	// 初始化路由管理器
+	router := router.NewRouter(
+		r,
+		authMiddleware,
+		authHandler,
+		appHandler,
+		userHandler,
+		permissionHandler,
+		roleHandler,
+		ruleHandler,
+	)
 
-		authHandler := v1.NewAuthHandler(authService)
-		authHandler.Register(api)
-
-	}
+	// 注册所有路由
+	router.RegisterRoutes()
 
 	// 启动服务器
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)

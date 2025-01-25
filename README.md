@@ -11,6 +11,9 @@
   <a href="https://www.gnu.org/licenses/agpl-3.0">
     <img src="https://img.shields.io/badge/License-AGPL%20v3-blue.svg" alt="License"/>
   </a>
+  <a href="https://github.com/shuakami/Lauth/blob/master/README_zh.md">
+    <img src="https://img.shields.io/badge/简体中文-blue.svg" alt="简体中文"/>
+  </a>
 </p>
 
 LAuth is an enterprise-grade unified authentication platform that provides centralized authentication services for multiple applications. Built with performance, security, and ease of use in mind.
@@ -19,6 +22,12 @@ LAuth is an enterprise-grade unified authentication platform that provides centr
 
 - **Multi-Application Support**: Manage authentication for multiple applications from a single platform
 - **High Performance**: Built with Go, optimized for speed and resource efficiency
+- **Advanced Permission System**:
+  - Role-Based Access Control (RBAC)
+  - Attribute-Based Access Control (ABAC)
+  - Dynamic Rules Engine
+  - Fine-grained Permission Management
+  - Role Hierarchy Support
 - **Secure by Design**: 
   - JWT-based authentication
   - Token revocation
@@ -30,9 +39,33 @@ LAuth is an enterprise-grade unified authentication platform that provides centr
   - Simple SDK (coming soon)
 - **Enterprise Ready**:
   - Multi-tenant architecture
-  - Role-based access control (coming soon)
   - Audit logging
   - Configurable authentication flows
+  - High-performance caching
+
+## System Architecture
+
+### Permission System
+
+The permission system combines RBAC and ABAC models to provide flexible and powerful access control:
+
+- **RBAC Core**:
+  - Role management
+  - Permission assignment
+  - User-role association
+  - Role inheritance
+
+- **Rules Engine**:
+  - Static and dynamic rules
+  - Rich operator support
+  - Priority-based execution
+  - Redis-based caching
+  - Real-time validation
+
+- **Permission Types**:
+  - Resource-based permissions
+  - Operation-based permissions
+  - Custom attribute rules
 
 ## Tech Stack
 
@@ -94,11 +127,50 @@ go run main.go
 
 ### User Management
 
-- `POST /api/v1/apps/:app_id/users` - Create user
-- `GET /api/v1/apps/:app_id/users/:id` - Get user details
-- `PUT /api/v1/apps/:app_id/users/:id` - Update user
-- `DELETE /api/v1/apps/:app_id/users/:id` - Delete user
-- `GET /api/v1/apps/:app_id/users` - List users
+- `POST /api/v1/apps/:id/users` - Create user
+- `GET /api/v1/apps/:id/users/:user_id` - Get user details
+- `PUT /api/v1/apps/:id/users/:user_id` - Update user
+- `DELETE /api/v1/apps/:id/users/:user_id` - Delete user
+- `GET /api/v1/apps/:id/users` - List users
+- `PUT /api/v1/apps/:id/users/:user_id/password` - Update password
+
+### Role Management
+
+- `POST /api/v1/apps/:id/roles` - Create role
+- `GET /api/v1/apps/:id/roles/:role_id` - Get role details
+- `PUT /api/v1/apps/:id/roles/:role_id` - Update role
+- `DELETE /api/v1/apps/:id/roles/:role_id` - Delete role
+- `GET /api/v1/apps/:id/roles` - List roles
+- `POST /api/v1/apps/:id/roles/:role_id/permissions` - Add permissions to role
+- `DELETE /api/v1/apps/:id/roles/:role_id/permissions` - Remove permissions from role
+- `GET /api/v1/apps/:id/roles/:role_id/permissions` - Get role permissions
+- `POST /api/v1/apps/:id/roles/:role_id/users` - Add users to role
+- `DELETE /api/v1/apps/:id/roles/:role_id/users` - Remove users from role
+- `GET /api/v1/apps/:id/roles/:role_id/users` - Get role users
+
+### Permission Management
+
+- `POST /api/v1/apps/:id/permissions` - Create permission
+- `GET /api/v1/apps/:id/permissions/:permission_id` - Get permission details
+- `PUT /api/v1/apps/:id/permissions/:permission_id` - Update permission
+- `DELETE /api/v1/apps/:id/permissions/:permission_id` - Delete permission
+- `GET /api/v1/apps/:id/permissions` - List permissions
+- `GET /api/v1/apps/:id/permissions/resource/:type` - List permissions by resource type
+- `GET /api/v1/apps/:id/users/:user_id/permissions` - List user permissions
+
+### Rules Management
+
+- `POST /api/v1/apps/:id/rules` - Create rule
+- `GET /api/v1/apps/:id/rules/:rule_id` - Get rule details
+- `PUT /api/v1/apps/:id/rules/:rule_id` - Update rule
+- `DELETE /api/v1/apps/:id/rules/:rule_id` - Delete rule
+- `GET /api/v1/apps/:id/rules` - List rules
+- `GET /api/v1/apps/:id/rules/active` - List active rules
+- `POST /api/v1/apps/:id/rules/validate` - Validate rules
+- `POST /api/v1/apps/:id/rules/:rule_id/conditions` - Add rule conditions
+- `PUT /api/v1/apps/:id/rules/:rule_id/conditions` - Update rule conditions
+- `DELETE /api/v1/apps/:id/rules/:rule_id/conditions` - Remove rule conditions
+- `GET /api/v1/apps/:id/rules/:rule_id/conditions` - Get rule conditions
 
 ## Configuration
 
@@ -110,14 +182,17 @@ Key configuration options:
 - Redis connection
 - JWT settings
 - Authentication options
+- Permission system settings
+- Rules engine configuration
 
 ## Roadmap
 
-- [ ] Role-based access control (RBAC)
+- [x] Role-based access control (RBAC)
+- [x] Attribute-based access control (ABAC)
+- [x] Rules engine
 - [ ] OAuth2.0 support
 - [ ] OpenID Connect support
 - [ ] Multi-factor authentication
-- [ ] Audit logging
 - [ ] SDK development
 - [ ] Docker support
 - [ ] Kubernetes deployment guides
