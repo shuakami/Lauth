@@ -28,6 +28,11 @@ LAuth is an enterprise-grade unified authentication platform that provides centr
   - Dynamic Rules Engine
   - Fine-grained Permission Management
   - Role Hierarchy Support
+- **OAuth 2.0 Support**:
+  - Authorization Code Grant
+  - Client Management
+  - Secure Token Handling
+  - Customizable Scopes
 - **Secure by Design**: 
   - JWT-based authentication
   - Token revocation
@@ -173,6 +178,22 @@ go run main.go
 - `DELETE /api/v1/apps/:id/rules/:rule_id/conditions` - Remove rule conditions
 - `GET /api/v1/apps/:id/rules/:rule_id/conditions` - Get rule conditions
 
+### OAuth 2.0 Management
+
+- `POST /api/v1/apps/:id/oauth/clients` - Create OAuth client
+- `GET /api/v1/apps/:id/oauth/clients/:client_id` - Get OAuth client details
+- `PUT /api/v1/apps/:id/oauth/clients/:client_id` - Update OAuth client
+- `DELETE /api/v1/apps/:id/oauth/clients/:client_id` - Delete OAuth client
+- `GET /api/v1/apps/:id/oauth/clients` - List OAuth clients
+- `POST /api/v1/apps/:id/oauth/clients/:client_id/secrets` - Create client secret
+- `GET /api/v1/apps/:id/oauth/clients/:client_id/secrets` - List client secrets
+- `DELETE /api/v1/apps/:id/oauth/clients/:client_id/secrets/:secret_id` - Delete client secret
+
+### OAuth 2.0 Authorization
+
+- `GET /api/v1/oauth/authorize` - OAuth authorization endpoint
+- `POST /api/v1/oauth/token` - Token endpoint (coming soon)
+
 ## Configuration
 
 LAuth can be configured via environment variables or configuration file. The configuration file is located at `config/config.yaml`.
@@ -191,7 +212,8 @@ Key configuration options:
 - [x] Role-based access control (RBAC)
 - [x] Attribute-based access control (ABAC)
 - [x] Rules engine
-- [ ] OAuth2.0 support
+- [x] OAuth2.0 support (Authorization Code Grant)
+- [ ] OAuth2.0 additional grant types
 - [ ] OpenID Connect support
 - [ ] Multi-factor authentication
 - [ ] SDK development

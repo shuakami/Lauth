@@ -7,6 +7,8 @@ import (
 	"lauth/internal/model"
 	"lauth/internal/service"
 
+	"log"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -36,12 +38,14 @@ func (m *AuthMiddleware) HandleAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 如果认证被禁用，直接放行
 		if !m.enabled {
+			log.Printf("Auth middleware is disabled")
 			c.Next()
 			return
 		}
 
 		// 从Authorization头获取token
 		auth := c.GetHeader("Authorization")
+		log.Printf("Received Authorization header: %s", auth)
 		if auth == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing authorization header"})
 			c.Abort()
@@ -57,10 +61,12 @@ func (m *AuthMiddleware) HandleAuth() gin.HandlerFunc {
 
 		// 提取token
 		token := auth[len(BearerSchema):]
+		log.Printf("Extracted token: %s", token)
 
 		// 验证token
 		claims, err := m.tokenService.ValidateToken(c.Request.Context(), token, model.AccessToken)
 		if err != nil {
+			log.Printf("Token validation failed: %v", err)
 			switch err {
 			case service.ErrInvalidToken:
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
@@ -75,6 +81,7 @@ func (m *AuthMiddleware) HandleAuth() gin.HandlerFunc {
 			return
 		}
 
+		log.Printf("Token validated successfully, claims: %+v", claims)
 		// 将用户信息存入上下文
 		c.Set(ContextKeyUser, claims)
 		c.Next()

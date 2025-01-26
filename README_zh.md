@@ -28,6 +28,11 @@ LAuth 是一个企业级统一认证平台，为多个应用提供集中式的�
   - 动态规则引擎
   - 细粒度权限管理
   - 角色层级支持
+- **OAuth 2.0 支持**：
+  - 授权码模式
+  - 客户端管理
+  - 安全的令牌处理
+  - 可自定义的权限范围
 - **安全性设计**：
   - 基于 JWT 的认证机制
   - 令牌撤销功能
@@ -173,6 +178,22 @@ go run main.go
 - `DELETE /api/v1/apps/:id/rules/:rule_id/conditions` - 删除规则条件
 - `GET /api/v1/apps/:id/rules/:rule_id/conditions` - 获取规则条件
 
+### OAuth 2.0 管理
+
+- `POST /api/v1/apps/:id/oauth/clients` - 创建 OAuth 客户端
+- `GET /api/v1/apps/:id/oauth/clients/:client_id` - 获取 OAuth 客户端详情
+- `PUT /api/v1/apps/:id/oauth/clients/:client_id` - 更新 OAuth 客户端
+- `DELETE /api/v1/apps/:id/oauth/clients/:client_id` - 删除 OAuth 客户端
+- `GET /api/v1/apps/:id/oauth/clients` - OAuth 客户端列表
+- `POST /api/v1/apps/:id/oauth/clients/:client_id/secrets` - 创建客户端密钥
+- `GET /api/v1/apps/:id/oauth/clients/:client_id/secrets` - 客户端密钥列表
+- `DELETE /api/v1/apps/:id/oauth/clients/:client_id/secrets/:secret_id` - 删除客户端密钥
+
+### OAuth 2.0 授权
+
+- `GET /api/v1/oauth/authorize` - OAuth 授权端点
+- `POST /api/v1/oauth/token` - 令牌端点（即将推出）
+
 ## 配置说明
 
 LAuth 支持通过环境变量或配置文件进行配置。配置文件位于 `config/config.yaml`。
@@ -191,7 +212,8 @@ LAuth 支持通过环境变量或配置文件进行配置。配置文件位于 `
 - [x] 基于角色的访问控制（RBAC）
 - [x] 基于属性的访问控制（ABAC）
 - [x] 规则引擎
-- [ ] OAuth2.0 支持
+- [x] OAuth2.0 支持（授权码模式）
+- [ ] OAuth2.0 其他授权模式
 - [ ] OpenID Connect 支持
 - [ ] 多因素认证
 - [ ] SDK 开发

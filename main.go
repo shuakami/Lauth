@@ -46,6 +46,9 @@ func main() {
 		&model.RolePermission{},
 		&model.Rule{},
 		&model.RuleCondition{},
+		&model.OAuthClient{},
+		&model.OAuthClientSecret{},
+		&model.AuthorizationCode{},
 	); err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
@@ -75,6 +78,9 @@ func main() {
 	roleRepo := repository.NewRoleRepository(db)
 	permissionRepo := repository.NewPermissionRepository(db)
 	ruleRepo := repository.NewRuleRepository(db)
+	oauthClientRepo := repository.NewOAuthClientRepository(db)
+	oauthClientSecretRepo := repository.NewOAuthClientSecretRepository(db)
+	authCodeRepo := repository.NewAuthorizationCodeRepository(db)
 
 	// 初始化Token服务
 	tokenService := service.NewTokenService(
@@ -97,6 +103,8 @@ func main() {
 	authService := service.NewAuthService(userRepo, tokenService, ruleService)
 	roleService := service.NewRoleService(roleRepo, permissionRepo)
 	permissionService := service.NewPermissionService(permissionRepo, roleRepo)
+	oauthClientService := service.NewOAuthClientService(oauthClientRepo, oauthClientSecretRepo)
+	authorizationService := service.NewAuthorizationService(oauthClientRepo, authCodeRepo)
 
 	// 创建默认的gin引擎
 	r := gin.Default()
@@ -111,6 +119,8 @@ func main() {
 	roleHandler := v1.NewRoleHandler(roleService)
 	permissionHandler := v1.NewPermissionHandler(permissionService)
 	ruleHandler := v1.NewRuleHandler(ruleService)
+	oauthClientHandler := v1.NewOAuthClientHandler(oauthClientService)
+	authorizationHandler := v1.NewAuthorizationHandler(authorizationService)
 
 	// 初始化路由管理器
 	router := router.NewRouter(
@@ -122,6 +132,8 @@ func main() {
 		permissionHandler,
 		roleHandler,
 		ruleHandler,
+		oauthClientHandler,
+		authorizationHandler,
 	)
 
 	// 注册所有路由

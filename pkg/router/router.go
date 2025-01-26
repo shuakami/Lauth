@@ -10,14 +10,16 @@ import (
 
 // Router 路由管理器
 type Router struct {
-	engine            *gin.Engine
-	authMiddleware    *middleware.AuthMiddleware
-	authHandler       *v1.AuthHandler
-	appHandler        *v1.AppHandler
-	userHandler       *v1.UserHandler
-	permissionHandler *v1.PermissionHandler
-	roleHandler       *v1.RoleHandler
-	ruleHandler       *v1.RuleHandler
+	engine             *gin.Engine
+	authMiddleware     *middleware.AuthMiddleware
+	authHandler        *v1.AuthHandler
+	appHandler         *v1.AppHandler
+	userHandler        *v1.UserHandler
+	permissionHandler  *v1.PermissionHandler
+	roleHandler        *v1.RoleHandler
+	ruleHandler        *v1.RuleHandler
+	oauthClientHandler *v1.OAuthClientHandler
+	authzHandler       *v1.AuthorizationHandler
 }
 
 // NewRouter 创建路由管理器实例
@@ -30,16 +32,20 @@ func NewRouter(
 	permissionHandler *v1.PermissionHandler,
 	roleHandler *v1.RoleHandler,
 	ruleHandler *v1.RuleHandler,
+	oauthClientHandler *v1.OAuthClientHandler,
+	authzHandler *v1.AuthorizationHandler,
 ) *Router {
 	return &Router{
-		engine:            engine,
-		authMiddleware:    authMiddleware,
-		authHandler:       authHandler,
-		appHandler:        appHandler,
-		userHandler:       userHandler,
-		permissionHandler: permissionHandler,
-		roleHandler:       roleHandler,
-		ruleHandler:       ruleHandler,
+		engine:             engine,
+		authMiddleware:     authMiddleware,
+		authHandler:        authHandler,
+		appHandler:         appHandler,
+		userHandler:        userHandler,
+		permissionHandler:  permissionHandler,
+		roleHandler:        roleHandler,
+		ruleHandler:        ruleHandler,
+		oauthClientHandler: oauthClientHandler,
+		authzHandler:       authzHandler,
 	}
 }
 
@@ -65,6 +71,10 @@ func (r *Router) RegisterRoutes() {
 		r.registerRoleRoutes(api)
 		// 注册规则相关路由
 		r.registerRuleRoutes(api)
+		// 注册OAuth客户端相关路由
+		r.registerOAuthRoutes(api)
+		// 注册OAuth授权相关路由
+		r.registerAuthorizationRoutes(api)
 	}
 }
 
@@ -119,4 +129,14 @@ func (r *Router) registerRoleRoutes(group *gin.RouterGroup) {
 // registerRuleRoutes 注册规则相关路由
 func (r *Router) registerRuleRoutes(group *gin.RouterGroup) {
 	r.ruleHandler.Register(group, r.authMiddleware)
+}
+
+// registerOAuthRoutes 注册OAuth相关路由
+func (r *Router) registerOAuthRoutes(group *gin.RouterGroup) {
+	r.oauthClientHandler.Register(group, r.authMiddleware)
+}
+
+// registerAuthorizationRoutes 注册OAuth授权相关路由
+func (r *Router) registerAuthorizationRoutes(group *gin.RouterGroup) {
+	r.authzHandler.Register(group, r.authMiddleware)
 }
