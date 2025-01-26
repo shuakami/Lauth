@@ -4,15 +4,25 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"lauth/internal/model"
 	"lauth/internal/repository"
+	"lauth/pkg/engine"
 )
 
 var (
 	// ErrInvalidCredentials 无效的凭证
 	ErrInvalidCredentials = errors.New("invalid credentials")
 )
+
+// ValidateTokenAndRuleResponse 组合验证响应
+type ValidateTokenAndRuleResponse struct {
+	User         *model.User    `json:"user"`
+	RuleResult   *engine.Result `json:"rule_result"`
+	ValidateTime time.Time      `json:"validate_time"`
+	Status       bool           `json:"status"`
+}
 
 // AuthService 认证服务接口
 type AuthService interface {
@@ -27,19 +37,24 @@ type AuthService interface {
 
 	// ValidateTokenAndGetUser 验证Token并获取用户信息（快速接口）
 	ValidateTokenAndGetUser(ctx context.Context, token string) (*model.TokenUserInfo, error)
+
+	// ValidateTokenAndRuleWithUser 组合验证令牌和规则并返回用户信息
+	ValidateTokenAndRuleWithUser(ctx context.Context, token string, data map[string]interface{}) (*ValidateTokenAndRuleResponse, error)
 }
 
 // authService 认证服务实现
 type authService struct {
 	userRepo     repository.UserRepository
 	tokenService TokenService
+	ruleService  RuleService
 }
 
 // NewAuthService 创建认证服务实例
-func NewAuthService(userRepo repository.UserRepository, tokenService TokenService) AuthService {
+func NewAuthService(userRepo repository.UserRepository, tokenService TokenService, ruleService RuleService) AuthService {
 	return &authService{
 		userRepo:     userRepo,
 		tokenService: tokenService,
+		ruleService:  ruleService,
 	}
 }
 
@@ -172,4 +187,47 @@ func (s *authService) ValidateTokenAndGetUser(ctx context.Context, token string)
 		AppID:    claims.AppID,
 		Username: claims.Username,
 	}, nil
+}
+
+// ValidateTokenAndRuleWithUser 组合验证令牌和规则并返回用户信息
+func (s *authService) ValidateTokenAndRuleWithUser(ctx context.Context, token string, data map[string]interface{}) (*ValidateTokenAndRuleResponse, error) {
+	// 先验证令牌并获取用户信息
+	userInfo, err := s.ValidateTokenAndGetUser(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+
+	// 将 token 中的用户信息添加到验证数据中
+	data["token_user_id"] = userInfo.UserID
+	data["token_app_id"] = userInfo.AppID
+	data["token_username"] = userInfo.Username
+
+	// 如果请求中包含 user_id，验证是否与 token 用户匹配
+	if requestUserID, ok := data["user_id"].(string); ok {
+		if requestUserID != userInfo.UserID {
+			return nil, errors.New("user_id mismatch with token")
+		}
+	}
+
+	// 验证规则
+	ruleResult, ruleErr := s.ruleService.ValidateRule(ctx, userInfo.AppID, data)
+
+	// 获取完整的用户信息
+	user, err := s.userRepo.GetByID(ctx, userInfo.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, ErrUserNotFound
+	}
+
+	// 构造响应
+	response := &ValidateTokenAndRuleResponse{
+		User:         user,
+		RuleResult:   ruleResult,
+		ValidateTime: time.Now(),
+		Status:       ruleErr == nil,
+	}
+
+	return response, ruleErr
 }

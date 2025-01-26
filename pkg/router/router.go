@@ -76,6 +76,7 @@ func (r *Router) registerAuthRoutes(group *gin.RouterGroup) {
 		auth.POST("/refresh", r.authHandler.RefreshToken)
 		auth.POST("/logout", r.authHandler.Logout)
 		auth.GET("/validate", r.authHandler.ValidateToken)
+		auth.POST("/validate-rule", r.authHandler.ValidateTokenAndRule)
 	}
 }
 

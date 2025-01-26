@@ -93,10 +93,10 @@ func main() {
 	// 初始化服务层
 	appService := service.NewAppService(appRepo)
 	userService := service.NewUserService(userRepo, appRepo)
-	authService := service.NewAuthService(userRepo, tokenService)
+	ruleService := service.NewRuleService(ruleRepo, ruleEngine)
+	authService := service.NewAuthService(userRepo, tokenService, ruleService)
 	roleService := service.NewRoleService(roleRepo, permissionRepo)
 	permissionService := service.NewPermissionService(permissionRepo, roleRepo)
-	ruleService := service.NewRuleService(ruleRepo, ruleEngine)
 
 	// 创建默认的gin引擎
 	r := gin.Default()

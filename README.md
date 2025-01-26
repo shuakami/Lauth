@@ -116,6 +116,7 @@ go run main.go
 - `POST /api/v1/auth/refresh` - Refresh access token
 - `POST /api/v1/auth/logout` - User logout
 - `GET /api/v1/auth/validate` - Validate token
+- `POST /api/v1/auth/validate-rule` - Combined validation for token and rules with user info
 
 ### Application Management
 

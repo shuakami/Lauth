@@ -116,6 +116,7 @@ go run main.go
 - `POST /api/v1/auth/refresh` - 刷新访问令牌
 - `POST /api/v1/auth/logout` - 用户登出
 - `GET /api/v1/auth/validate` - 验证令牌
+- `POST /api/v1/auth/validate-rule` - 组合验证令牌和规则并返回用户信息
 
 ### 应用管理
 

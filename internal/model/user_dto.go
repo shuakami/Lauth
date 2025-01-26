@@ -49,3 +49,9 @@ type LoginResponse struct {
 	RefreshToken string       `json:"refresh_token"`
 	ExpiresIn    int64        `json:"expires_in"` // 过期时间（秒）
 }
+
+// LoginCookieResponse Cookie认证的登录响应
+type LoginCookieResponse struct {
+	User      UserResponse `json:"user"`
+	ExpiresIn int64        `json:"expires_in"` // 过期时间（秒）
+}
