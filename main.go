@@ -104,10 +104,13 @@ func main() {
 	roleService := service.NewRoleService(roleRepo, permissionRepo)
 	permissionService := service.NewPermissionService(permissionRepo, roleRepo)
 	oauthClientService := service.NewOAuthClientService(oauthClientRepo, oauthClientSecretRepo)
-	authorizationService := service.NewAuthorizationService(oauthClientRepo, authCodeRepo)
+	authorizationService := service.NewAuthorizationService(oauthClientRepo, oauthClientSecretRepo, authCodeRepo, tokenService)
 
 	// 创建默认的gin引擎
 	r := gin.Default()
+
+	// 添加CORS中间件
+	r.Use(middleware.CORSMiddleware())
 
 	// 初始化认证中间件
 	authMiddleware := middleware.NewAuthMiddleware(tokenService, cfg.Server.AuthEnabled)

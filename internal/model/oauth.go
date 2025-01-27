@@ -180,3 +180,34 @@ func (ac *AuthorizationCode) BeforeCreate(tx *gorm.DB) error {
 	}
 	return nil
 }
+
+// TokenRequest OAuth令牌请求
+type TokenRequest struct {
+	GrantType    string `form:"grant_type" binding:"required"`
+	Code         string `form:"code"`
+	RedirectURI  string `form:"redirect_uri"`
+	ClientID     string `form:"client_id" binding:"required"`
+	ClientSecret string `form:"client_secret" binding:"required"`
+	RefreshToken string `form:"refresh_token"`
+}
+
+// TokenError OAuth令牌错误响应
+type TokenError struct {
+	Error            string `json:"error"`
+	ErrorDescription string `json:"error_description,omitempty"`
+}
+
+const (
+	// GrantTypeAuthorizationCode 授权码授权类型
+	GrantTypeAuthorizationCode = "authorization_code"
+	// GrantTypeRefreshToken 刷新令牌授权类型
+	GrantTypeRefreshToken = "refresh_token"
+
+	// 错误类型
+	ErrorInvalidRequest       = "invalid_request"
+	ErrorInvalidClient        = "invalid_client"
+	ErrorInvalidGrant         = "invalid_grant"
+	ErrorUnauthorizedClient   = "unauthorized_client"
+	ErrorUnsupportedGrantType = "unsupported_grant_type"
+	ErrorInvalidScope         = "invalid_scope"
+)

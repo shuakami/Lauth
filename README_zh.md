@@ -192,7 +192,8 @@ go run main.go
 ### OAuth 2.0 授权
 
 - `GET /api/v1/oauth/authorize` - OAuth 授权端点
-- `POST /api/v1/oauth/token` - 令牌端点（即将推出）
+- `POST /api/v1/oauth/token` - 令牌端点
+- `GET /api/v1/users/me` - 获取当前用户信息（支持OAuth和普通认证）
 
 ## 配置说明
 
@@ -213,6 +214,7 @@ LAuth 支持通过环境变量或配置文件进行配置。配置文件位于 `
 - [x] 基于属性的访问控制（ABAC）
 - [x] 规则引擎
 - [x] OAuth2.0 支持（授权码模式）
+- [x] OAuth2.0 令牌端点
 - [ ] OAuth2.0 其他授权模式
 - [ ] OpenID Connect 支持
 - [ ] 多因素认证

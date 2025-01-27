@@ -177,3 +177,28 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 		},
 	})
 }
+
+// GetUserInfo 获取当前用户信息
+func (h *UserHandler) GetUserInfo(c *gin.Context) {
+	// 从上下文中获取用户信息
+	claims := middleware.GetUserFromContext(c)
+	if claims == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "unauthorized",
+		})
+		return
+	}
+
+	// 获取用户详细信息
+	user, err := h.userService.GetUser(c.Request.Context(), claims.UserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": user,
+	})
+}

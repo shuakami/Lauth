@@ -104,6 +104,7 @@ func (r *Router) registerAppRoutes(group *gin.RouterGroup) {
 
 // registerUserRoutes 注册用户相关路由
 func (r *Router) registerUserRoutes(group *gin.RouterGroup) {
+	// 基于应用的用户管理路由
 	apps := group.Group("/apps")
 	{
 		// 用户管理路由
@@ -113,6 +114,13 @@ func (r *Router) registerUserRoutes(group *gin.RouterGroup) {
 		apps.PUT("/:id/users/:user_id", r.authMiddleware.HandleAuth(), r.userHandler.UpdateUser)
 		apps.PUT("/:id/users/:user_id/password", r.authMiddleware.HandleAuth(), r.userHandler.UpdatePassword)
 		apps.DELETE("/:id/users/:user_id", r.authMiddleware.HandleAuth(), r.userHandler.DeleteUser)
+	}
+
+	// 用户资源路由（用于OAuth2.0和普通认证）
+	users := group.Group("/users")
+	users.Use(r.authMiddleware.HandleAuth())
+	{
+		users.GET("/me", r.userHandler.GetUserInfo)
 	}
 }
 

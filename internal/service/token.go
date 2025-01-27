@@ -53,12 +53,16 @@ func NewTokenService(redisClient *redis.Client, jwtSecret string, accessExpiry, 
 
 // generateToken 生成JWT令牌
 func (s *tokenService) generateToken(claims *model.TokenClaims, expiry time.Duration) (string, error) {
+	expiresAt := time.Now().Add(expiry)
+	claims.ExpiresAt = expiresAt
+
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user_id":  claims.UserID,
-		"app_id":   claims.AppID,
-		"username": claims.Username,
-		"type":     claims.Type,
-		"exp":      time.Now().Add(expiry).Unix(),
+		"user_id":    claims.UserID,
+		"app_id":     claims.AppID,
+		"username":   claims.Username,
+		"type":       claims.Type,
+		"exp":        expiresAt.Unix(),
+		"expires_at": expiresAt,
 	})
 
 	return token.SignedString(s.jwtSecret)
@@ -139,11 +143,24 @@ func (s *tokenService) ValidateToken(ctx context.Context, tokenString string, to
 		return nil, ErrTokenRevoked
 	}
 
+	// 获取过期时间
+	exp, ok := claims["exp"].(float64)
+	if !ok {
+		return nil, ErrInvalidToken
+	}
+	expiresAt := time.Unix(int64(exp), 0)
+
+	// 检查是否已过期
+	if time.Now().After(expiresAt) {
+		return nil, ErrTokenExpired
+	}
+
 	return &model.TokenClaims{
-		UserID:   claims["user_id"].(string),
-		AppID:    claims["app_id"].(string),
-		Username: claims["username"].(string),
-		Type:     model.TokenType(claims["type"].(string)),
+		UserID:    claims["user_id"].(string),
+		AppID:     claims["app_id"].(string),
+		Username:  claims["username"].(string),
+		Type:      model.TokenType(claims["type"].(string)),
+		ExpiresAt: expiresAt,
 	}, nil
 }
 

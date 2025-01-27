@@ -29,6 +29,8 @@ func (h *AuthorizationHandler) Register(group *gin.RouterGroup, authMiddleware *
 	{
 		// 授权端点
 		oauth.GET("/authorize", authMiddleware.HandleAuth(), h.HandleAuthorize)
+		// 令牌端点
+		oauth.POST("/token", h.HandleToken)
 	}
 }
 
@@ -67,6 +69,95 @@ func (h *AuthorizationHandler) HandleAuthorize(c *gin.Context) {
 		return
 	}
 
-	// 重定向到客户端
-	c.Redirect(http.StatusFound, redirectURL)
+	// 返回重定向URL而不是直接重定向
+	c.JSON(http.StatusOK, gin.H{
+		"redirect_url": redirectURL,
+	})
+}
+
+// HandleToken 处理令牌请求
+func (h *AuthorizationHandler) HandleToken(c *gin.Context) {
+	var req model.TokenRequest
+	if err := c.Request.ParseForm(); err != nil {
+		c.JSON(http.StatusBadRequest, model.TokenError{
+			Error:            model.ErrorInvalidRequest,
+			ErrorDescription: "failed to parse form data",
+		})
+		return
+	}
+
+	// 手动绑定表单数据
+	req.GrantType = c.Request.PostForm.Get("grant_type")
+	req.Code = c.Request.PostForm.Get("code")
+	req.RedirectURI = c.Request.PostForm.Get("redirect_uri")
+	req.ClientID = c.Request.PostForm.Get("client_id")
+	req.ClientSecret = c.Request.PostForm.Get("client_secret")
+	req.RefreshToken = c.Request.PostForm.Get("refresh_token")
+
+	// 验证必填字段
+	if req.GrantType == "" || req.ClientID == "" || req.ClientSecret == "" {
+		c.JSON(http.StatusBadRequest, model.TokenError{
+			Error:            model.ErrorInvalidRequest,
+			ErrorDescription: "missing required parameters",
+		})
+		return
+	}
+
+	// 根据授权类型验证其他必填字段
+	if req.GrantType == model.GrantTypeAuthorizationCode {
+		if req.Code == "" || req.RedirectURI == "" {
+			c.JSON(http.StatusBadRequest, model.TokenError{
+				Error:            model.ErrorInvalidRequest,
+				ErrorDescription: "code and redirect_uri are required for authorization_code grant type",
+			})
+			return
+		}
+	} else if req.GrantType == model.GrantTypeRefreshToken {
+		if req.RefreshToken == "" {
+			c.JSON(http.StatusBadRequest, model.TokenError{
+				Error:            model.ErrorInvalidRequest,
+				ErrorDescription: "refresh_token is required for refresh_token grant type",
+			})
+			return
+		}
+	}
+
+	// 颁发令牌
+	resp, err := h.authService.IssueToken(c.Request.Context(), &req)
+	if err != nil {
+		var statusCode int
+		var tokenError model.TokenError
+
+		switch err {
+		case service.ErrInvalidClient:
+			statusCode = http.StatusUnauthorized
+			tokenError = model.TokenError{
+				Error:            model.ErrorInvalidClient,
+				ErrorDescription: "invalid client credentials",
+			}
+		case service.ErrInvalidGrant:
+			statusCode = http.StatusBadRequest
+			tokenError = model.TokenError{
+				Error:            model.ErrorInvalidGrant,
+				ErrorDescription: "invalid authorization code or refresh token",
+			}
+		case service.ErrUnsupportedGrantType:
+			statusCode = http.StatusBadRequest
+			tokenError = model.TokenError{
+				Error:            model.ErrorUnsupportedGrantType,
+				ErrorDescription: "unsupported grant type",
+			}
+		default:
+			statusCode = http.StatusInternalServerError
+			tokenError = model.TokenError{
+				Error:            "server_error",
+				ErrorDescription: "internal server error",
+			}
+		}
+
+		c.JSON(statusCode, tokenError)
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
 }

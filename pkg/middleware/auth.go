@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"lauth/internal/model"
 	"lauth/internal/service"
@@ -17,6 +18,8 @@ const (
 	BearerSchema = "Bearer "
 	// ContextKeyUser 上下文中用户信息的键
 	ContextKeyUser = "user"
+	// CookieAccessToken Cookie中访问令牌的键
+	CookieAccessToken = "access_token"
 )
 
 // AuthMiddleware 认证中间件
@@ -43,25 +46,13 @@ func (m *AuthMiddleware) HandleAuth() gin.HandlerFunc {
 			return
 		}
 
-		// 从Authorization头获取token
-		auth := c.GetHeader("Authorization")
-		log.Printf("Received Authorization header: %s", auth)
-		if auth == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing authorization header"})
+		// 获取token
+		token := m.extractToken(c)
+		if token == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
 			c.Abort()
 			return
 		}
-
-		// 验证Bearer方案
-		if !strings.HasPrefix(auth, BearerSchema) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid authorization scheme"})
-			c.Abort()
-			return
-		}
-
-		// 提取token
-		token := auth[len(BearerSchema):]
-		log.Printf("Extracted token: %s", token)
 
 		// 验证token
 		claims, err := m.tokenService.ValidateToken(c.Request.Context(), token, model.AccessToken)
@@ -81,9 +72,36 @@ func (m *AuthMiddleware) HandleAuth() gin.HandlerFunc {
 			return
 		}
 
+		// 设置过期时间响应头
+		remainingTime := time.Until(claims.GetExpiresAt())
+		if remainingTime > 0 {
+			c.Header("X-Token-Expires-In", remainingTime.String())
+		}
+
 		log.Printf("Token validated successfully, claims: %+v", claims)
 		// 将用户信息存入上下文
 		c.Set(ContextKeyUser, claims)
 		c.Next()
 	}
+}
+
+// extractToken 从请求中提取token
+func (m *AuthMiddleware) extractToken(c *gin.Context) string {
+	// 1. 尝试从Authorization头获取
+	auth := c.GetHeader("Authorization")
+	if auth != "" && strings.HasPrefix(auth, BearerSchema) {
+		log.Printf("Found token in Authorization header: %s", auth[len(BearerSchema):])
+		return auth[len(BearerSchema):]
+	}
+
+	// 2. 尝试从Cookie获取
+	if cookie, err := c.Cookie(CookieAccessToken); err == nil {
+		log.Printf("Found token in Cookie: %s", cookie)
+		return cookie
+	} else {
+		log.Printf("No token found in Cookie, error: %v", err)
+	}
+
+	log.Printf("No token found in request")
+	return ""
 }

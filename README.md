@@ -192,7 +192,8 @@ go run main.go
 ### OAuth 2.0 Authorization
 
 - `GET /api/v1/oauth/authorize` - OAuth authorization endpoint
-- `POST /api/v1/oauth/token` - Token endpoint (coming soon)
+- `POST /api/v1/oauth/token` - Token endpoint
+- `GET /api/v1/users/me` - Get current user info (for OAuth and normal authentication)
 
 ## Configuration
 
@@ -213,6 +214,7 @@ Key configuration options:
 - [x] Attribute-based access control (ABAC)
 - [x] Rules engine
 - [x] OAuth2.0 support (Authorization Code Grant)
+- [x] OAuth2.0 Token endpoint
 - [ ] OAuth2.0 additional grant types
 - [ ] OpenID Connect support
 - [ ] Multi-factor authentication
