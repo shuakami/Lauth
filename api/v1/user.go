@@ -34,7 +34,7 @@ func (h *UserHandler) Register(r *gin.RouterGroup, authMiddleware *middleware.Au
 }
 
 // toUserResponse 转换为用户响应
-func toUserResponse(user *model.User) model.UserResponse {
+func toUserResponse(user *model.User, profile *model.Profile) model.UserResponse {
 	return model.UserResponse{
 		ID:        user.ID,
 		AppID:     user.AppID,
@@ -43,6 +43,7 @@ func toUserResponse(user *model.User) model.UserResponse {
 		Email:     user.Email,
 		Phone:     user.Phone,
 		Status:    user.Status,
+		Profile:   profile,
 		CreatedAt: user.CreatedAt.Format(time.RFC3339),
 		UpdatedAt: user.UpdatedAt.Format(time.RFC3339),
 	}
@@ -70,23 +71,31 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, toUserResponse(user))
+	// 获取用户档案
+	_, profile, err := h.userService.GetUserWithProfile(c.Request.Context(), user.ID)
+	if err != nil && err != service.ErrProfileNotFound {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, toUserResponse(user, profile))
 }
 
 // GetUser 获取用户
 func (h *UserHandler) GetUser(c *gin.Context) {
 	id := c.Param("user_id")
-	user, err := h.userService.GetUser(c.Request.Context(), id)
+	user, profile, err := h.userService.GetUserWithProfile(c.Request.Context(), id)
 	if err != nil {
-		if err == service.ErrUserNotFound {
+		switch err {
+		case service.ErrUserNotFound:
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-			return
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, toUserResponse(user))
+	c.JSON(http.StatusOK, toUserResponse(user, profile))
 }
 
 // UpdateUser 更新用户
@@ -100,15 +109,23 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 
 	user, err := h.userService.UpdateUser(c.Request.Context(), id, &req)
 	if err != nil {
-		if err == service.ErrUserNotFound {
+		switch err {
+		case service.ErrUserNotFound:
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-			return
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
+		return
+	}
+
+	// 获取更新后的用户档案
+	_, profile, err := h.userService.GetUserWithProfile(c.Request.Context(), user.ID)
+	if err != nil && err != service.ErrProfileNotFound {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, toUserResponse(user))
+	c.JSON(http.StatusOK, toUserResponse(user, profile))
 }
 
 // UpdatePassword 更新密码
@@ -140,11 +157,12 @@ func (h *UserHandler) UpdatePassword(c *gin.Context) {
 func (h *UserHandler) DeleteUser(c *gin.Context) {
 	id := c.Param("user_id")
 	if err := h.userService.DeleteUser(c.Request.Context(), id); err != nil {
-		if err == service.ErrUserNotFound {
+		switch err {
+		case service.ErrUserNotFound:
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-			return
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -165,7 +183,13 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 
 	var responses []model.UserResponse
 	for _, user := range users {
-		responses = append(responses, toUserResponse(&user))
+		// 获取用户档案
+		_, profile, err := h.userService.GetUserWithProfile(c.Request.Context(), user.ID)
+		if err != nil && err != service.ErrProfileNotFound {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		responses = append(responses, toUserResponse(&user, profile))
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -190,15 +214,16 @@ func (h *UserHandler) GetUserInfo(c *gin.Context) {
 	}
 
 	// 获取用户详细信息
-	user, err := h.userService.GetUser(c.Request.Context(), claims.UserID)
+	user, profile, err := h.userService.GetUserWithProfile(c.Request.Context(), claims.UserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
+		switch err {
+		case service.ErrUserNotFound:
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": user,
-	})
+	c.JSON(http.StatusOK, toUserResponse(user, profile))
 }

@@ -20,6 +20,8 @@ type Router struct {
 	ruleHandler        *v1.RuleHandler
 	oauthClientHandler *v1.OAuthClientHandler
 	authzHandler       *v1.AuthorizationHandler
+	profileHandler     *v1.ProfileHandler
+	fileHandler        *v1.FileHandler
 }
 
 // NewRouter 创建路由管理器实例
@@ -34,6 +36,8 @@ func NewRouter(
 	ruleHandler *v1.RuleHandler,
 	oauthClientHandler *v1.OAuthClientHandler,
 	authzHandler *v1.AuthorizationHandler,
+	profileHandler *v1.ProfileHandler,
+	fileHandler *v1.FileHandler,
 ) *Router {
 	return &Router{
 		engine:             engine,
@@ -46,6 +50,8 @@ func NewRouter(
 		ruleHandler:        ruleHandler,
 		oauthClientHandler: oauthClientHandler,
 		authzHandler:       authzHandler,
+		profileHandler:     profileHandler,
+		fileHandler:        fileHandler,
 	}
 }
 
@@ -75,6 +81,10 @@ func (r *Router) RegisterRoutes() {
 		r.registerOAuthRoutes(api)
 		// 注册OAuth授权相关路由
 		r.registerAuthorizationRoutes(api)
+		// 注册Profile相关路由
+		r.registerProfileRoutes(api)
+		// 注册文件相关路由
+		r.registerFileRoutes(api)
 	}
 }
 
@@ -147,4 +157,14 @@ func (r *Router) registerOAuthRoutes(group *gin.RouterGroup) {
 // registerAuthorizationRoutes 注册OAuth授权相关路由
 func (r *Router) registerAuthorizationRoutes(group *gin.RouterGroup) {
 	r.authzHandler.Register(group, r.authMiddleware)
+}
+
+// registerProfileRoutes 注册Profile相关路由
+func (r *Router) registerProfileRoutes(group *gin.RouterGroup) {
+	r.profileHandler.Register(group, r.authMiddleware)
+}
+
+// registerFileRoutes 注册文件相关路由
+func (r *Router) registerFileRoutes(group *gin.RouterGroup) {
+	r.fileHandler.Register(group, r.authMiddleware)
 }

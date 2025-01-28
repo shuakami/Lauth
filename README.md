@@ -47,6 +47,11 @@ LAuth is an enterprise-grade unified authentication platform that provides centr
   - Audit logging
   - Configurable authentication flows
   - High-performance caching
+- **User Profile Management**:
+  - Flexible profile schema
+  - Custom fields support
+  - Profile data storage in MongoDB
+  - Seamless integration with user management
 
 ## System Architecture
 
@@ -75,7 +80,9 @@ The permission system combines RBAC and ABAC models to provide flexible and powe
 ## Tech Stack
 
 - **Language**: Go 1.19+
-- **Database**: PostgreSQL
+- **Database**: 
+  - PostgreSQL (Core data)
+  - MongoDB (Profile data)
 - **Cache**: Redis
 - **Authentication**: JWT
 - **API**: RESTful with Gin framework
@@ -87,6 +94,7 @@ The permission system combines RBAC and ABAC models to provide flexible and powe
 
 - Go 1.19 or higher
 - PostgreSQL 12 or higher
+- MongoDB 4.4 or higher
 - Redis 6 or higher
 
 ### Installation
@@ -134,11 +142,20 @@ go run main.go
 ### User Management
 
 - `POST /api/v1/apps/:id/users` - Create user
-- `GET /api/v1/apps/:id/users/:user_id` - Get user details
+- `GET /api/v1/apps/:id/users/:user_id` - Get user details with profile
 - `PUT /api/v1/apps/:id/users/:user_id` - Update user
 - `DELETE /api/v1/apps/:id/users/:user_id` - Delete user
-- `GET /api/v1/apps/:id/users` - List users
+- `GET /api/v1/apps/:id/users` - List users with profiles
 - `PUT /api/v1/apps/:id/users/:user_id/password` - Update password
+
+### Profile Management
+
+- `GET /api/v1/apps/:id/users/:user_id/profile` - Get user profile
+- `PUT /api/v1/apps/:id/users/:user_id/profile` - Update user profile
+- `DELETE /api/v1/apps/:id/users/:user_id/profile` - Delete user profile
+- `POST /api/v1/apps/:id/users/:user_id/profile/files` - Upload profile files
+- `GET /api/v1/apps/:id/users/:user_id/profile/files/:file_id` - Get profile file
+- `DELETE /api/v1/apps/:id/users/:user_id/profile/files/:file_id` - Delete profile file
 
 ### Role Management
 

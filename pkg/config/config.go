@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Server   ServerConfig
 	Database database.Config
+	MongoDB  MongoDBConfig
 	Redis    RedisConfig
 	JWT      JWTConfig
 }
@@ -21,6 +22,14 @@ type ServerConfig struct {
 	Port        int
 	Mode        string
 	AuthEnabled bool `mapstructure:"auth_enabled"` // 是否启用认证
+}
+
+// MongoDBConfig MongoDB配置
+type MongoDBConfig struct {
+	URI         string `mapstructure:"uri"`
+	Database    string `mapstructure:"database"`
+	MaxPoolSize uint64 `mapstructure:"max_pool_size"`
+	MinPoolSize uint64 `mapstructure:"min_pool_size"`
 }
 
 // RedisConfig Redis配置

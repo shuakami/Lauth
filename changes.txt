@@ -1,0 +1,609 @@
+﻿diff --git a/api/v1/user.go b/api/v1/user.go
+index d8546dd..ca3a6b0 100644
+--- a/api/v1/user.go
++++ b/api/v1/user.go
+@@ -34,7 +34,7 @@ func (h *UserHandler) Register(r *gin.RouterGroup, authMiddleware *middleware.Au
+ }
+ 
+ // toUserResponse 转换为用户响应
+-func toUserResponse(user *model.User) model.UserResponse {
++func toUserResponse(user *model.User, profile *model.Profile) model.UserResponse {
+ 	return model.UserResponse{
+ 		ID:        user.ID,
+ 		AppID:     user.AppID,
+@@ -43,6 +43,7 @@ func toUserResponse(user *model.User) model.UserResponse {
+ 		Email:     user.Email,
+ 		Phone:     user.Phone,
+ 		Status:    user.Status,
++		Profile:   profile,
+ 		CreatedAt: user.CreatedAt.Format(time.RFC3339),
+ 		UpdatedAt: user.UpdatedAt.Format(time.RFC3339),
+ 	}
+@@ -70,23 +71,31 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
+ 		return
+ 	}
+ 
+-	c.JSON(http.StatusCreated, toUserResponse(user))
++	// 获取用户档案
++	_, profile, err := h.userService.GetUserWithProfile(c.Request.Context(), user.ID)
++	if err != nil && err != service.ErrProfileNotFound {
++		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
++		return
++	}
++
++	c.JSON(http.StatusCreated, toUserResponse(user, profile))
+ }
+ 
+ // GetUser 获取用户
+ func (h *UserHandler) GetUser(c *gin.Context) {
+ 	id := c.Param("user_id")
+-	user, err := h.userService.GetUser(c.Request.Context(), id)
++	user, profile, err := h.userService.GetUserWithProfile(c.Request.Context(), id)
+ 	if err != nil {
+-		if err == service.ErrUserNotFound {
++		switch err {
++		case service.ErrUserNotFound:
+ 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+-			return
++		default:
++			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+ 		}
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+ 		return
+ 	}
+ 
+-	c.JSON(http.StatusOK, toUserResponse(user))
++	c.JSON(http.StatusOK, toUserResponse(user, profile))
+ }
+ 
+ // UpdateUser 更新用户
+@@ -100,15 +109,23 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
+ 
+ 	user, err := h.userService.UpdateUser(c.Request.Context(), id, &req)
+ 	if err != nil {
+-		if err == service.ErrUserNotFound {
++		switch err {
++		case service.ErrUserNotFound:
+ 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+-			return
++		default:
++			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+ 		}
++		return
++	}
++
++	// 获取更新后的用户档案
++	_, profile, err := h.userService.GetUserWithProfile(c.Request.Context(), user.ID)
++	if err != nil && err != service.ErrProfileNotFound {
+ 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+ 		return
+ 	}
+ 
+-	c.JSON(http.StatusOK, toUserResponse(user))
++	c.JSON(http.StatusOK, toUserResponse(user, profile))
+ }
+ 
+ // UpdatePassword 更新密码
+@@ -140,11 +157,12 @@ func (h *UserHandler) UpdatePassword(c *gin.Context) {
+ func (h *UserHandler) DeleteUser(c *gin.Context) {
+ 	id := c.Param("user_id")
+ 	if err := h.userService.DeleteUser(c.Request.Context(), id); err != nil {
+-		if err == service.ErrUserNotFound {
++		switch err {
++		case service.ErrUserNotFound:
+ 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+-			return
++		default:
++			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+ 		}
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+ 		return
+ 	}
+ 
+@@ -165,7 +183,13 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
+ 
+ 	var responses []model.UserResponse
+ 	for _, user := range users {
+-		responses = append(responses, toUserResponse(&user))
++		// 获取用户档案
++		_, profile, err := h.userService.GetUserWithProfile(c.Request.Context(), user.ID)
++		if err != nil && err != service.ErrProfileNotFound {
++			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
++			return
++		}
++		responses = append(responses, toUserResponse(&user, profile))
+ 	}
+ 
+ 	c.JSON(http.StatusOK, gin.H{
+@@ -190,15 +214,16 @@ func (h *UserHandler) GetUserInfo(c *gin.Context) {
+ 	}
+ 
+ 	// 获取用户详细信息
+-	user, err := h.userService.GetUser(c.Request.Context(), claims.UserID)
++	user, profile, err := h.userService.GetUserWithProfile(c.Request.Context(), claims.UserID)
+ 	if err != nil {
+-		c.JSON(http.StatusInternalServerError, gin.H{
+-			"error": err.Error(),
+-		})
++		switch err {
++		case service.ErrUserNotFound:
++			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
++		default:
++			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
++		}
+ 		return
+ 	}
+ 
+-	c.JSON(http.StatusOK, gin.H{
+-		"data": user,
+-	})
++	c.JSON(http.StatusOK, toUserResponse(user, profile))
+ }
+diff --git a/go.mod b/go.mod
+index 5447d4d..23e35a9 100644
+--- a/go.mod
++++ b/go.mod
+@@ -25,6 +25,7 @@ require (
+ 	github.com/go-redis/redis/v8 v8.11.5 // indirect
+ 	github.com/goccy/go-json v0.10.2 // indirect
+ 	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
++	github.com/golang/snappy v0.0.4 // indirect
+ 	github.com/google/uuid v1.6.0 // indirect
+ 	github.com/hashicorp/hcl v1.0.0 // indirect
+ 	github.com/jackc/pgpassfile v1.0.0 // indirect
+@@ -34,6 +35,7 @@ require (
+ 	github.com/jinzhu/inflection v1.0.0 // indirect
+ 	github.com/jinzhu/now v1.1.5 // indirect
+ 	github.com/json-iterator/go v1.1.12 // indirect
++	github.com/klauspost/compress v1.17.2 // indirect
+ 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
+ 	github.com/leodido/go-urn v1.4.0 // indirect
+ 	github.com/lib/pq v1.10.9 // indirect
+@@ -42,6 +44,7 @@ require (
+ 	github.com/mitchellh/mapstructure v1.5.0 // indirect
+ 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
+ 	github.com/modern-go/reflect2 v1.0.2 // indirect
++	github.com/montanaflynn/stats v0.7.1 // indirect
+ 	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
+ 	github.com/redis/go-redis/v9 v9.7.0 // indirect
+ 	github.com/sagikazarmark/locafero v0.4.0 // indirect
+@@ -53,15 +56,20 @@ require (
+ 	github.com/subosito/gotenv v1.6.0 // indirect
+ 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
+ 	github.com/ugorji/go/codec v1.2.12 // indirect
++	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
++	github.com/xdg-go/scram v1.1.2 // indirect
++	github.com/xdg-go/stringprep v1.0.4 // indirect
++	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
++	go.mongodb.org/mongo-driver v1.17.2 // indirect
+ 	go.uber.org/atomic v1.9.0 // indirect
+ 	go.uber.org/multierr v1.9.0 // indirect
+ 	golang.org/x/arch v0.8.0 // indirect
+-	golang.org/x/crypto v0.23.0 // indirect
++	golang.org/x/crypto v0.26.0 // indirect
+ 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9 // indirect
+ 	golang.org/x/net v0.25.0 // indirect
+-	golang.org/x/sync v0.6.0 // indirect
+-	golang.org/x/sys v0.20.0 // indirect
+-	golang.org/x/text v0.15.0 // indirect
++	golang.org/x/sync v0.8.0 // indirect
++	golang.org/x/sys v0.23.0 // indirect
++	golang.org/x/text v0.17.0 // indirect
+ 	google.golang.org/protobuf v1.34.1 // indirect
+ 	gopkg.in/ini.v1 v1.67.0 // indirect
+ 	gopkg.in/yaml.v3 v3.0.1 // indirect
+diff --git a/go.sum b/go.sum
+index c112eab..d1f6363 100644
+--- a/go.sum
++++ b/go.sum
+@@ -40,6 +40,8 @@ github.com/goccy/go-json v0.10.2 h1:CrxCmQqYDkv1z7lO7Wbh2HN93uovUHgrECaO5ZrCXAU=
+ github.com/goccy/go-json v0.10.2/go.mod h1:6MelG93GURQebXPDq3khkgXZkazVtN9CRI+MGFi0w8I=
+ github.com/golang-jwt/jwt/v5 v5.2.1 h1:OuVbFODueb089Lh128TAcimifWaLhJwVflnrgM17wHk=
+ github.com/golang-jwt/jwt/v5 v5.2.1/go.mod h1:pqrtFR0X4osieyHYxtmOUWsAWrfe1Q5UVIyoH402zdk=
++github.com/golang/snappy v0.0.4 h1:yAGX7huGHXlcLOEtBnF4w7FQwA26wojNCwOYAEhLjQM=
++github.com/golang/snappy v0.0.4/go.mod h1:/XxbfmMg8lxefKM7IXC3fBNl/7bRcc72aCRzEWrmP2Q=
+ github.com/google/go-cmp v0.5.9 h1:O2Tfq5qg4qc4AmwVlvv0oLiVAGB7enBSJ2x2DqQFi38=
+ github.com/google/go-cmp v0.5.9/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
+ github.com/google/gofuzz v1.0.0/go.mod h1:dBl0BpW6vV/+mYPU4Po3pmUjxk6FQPldtuIdl/M65Eg=
+@@ -61,6 +63,8 @@ github.com/jinzhu/now v1.1.5 h1:/o9tlHleP7gOFmsnYNz3RGnqzefHA47wQpKrrdTIwXQ=
+ github.com/jinzhu/now v1.1.5/go.mod h1:d3SSVoowX0Lcu0IBviAWJpolVfI5UJVZZ7cO71lE/z8=
+ github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnrnM=
+ github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHmT4TnhNGBo=
++github.com/klauspost/compress v1.17.2 h1:RlWWUY/Dr4fL8qk9YG7DTZ7PDgME2V4csBXA8L/ixi4=
++github.com/klauspost/compress v1.17.2/go.mod h1:ntbaceVETuRiXiv4DpjP66DpAtAGkEQskQzEyD//IeE=
+ github.com/klauspost/cpuid/v2 v2.0.9/go.mod h1:FInQzS24/EEf25PyTYn52gqo7WaD8xa0213Md/qVLRg=
+ github.com/klauspost/cpuid/v2 v2.2.7 h1:ZWSB3igEs+d0qvnxR/ZBzXVmxkgt8DdzP6m9pfuVLDM=
+ github.com/klauspost/cpuid/v2 v2.2.7/go.mod h1:Lcz8mBdAVJIBVzewtcLocK12l3Y+JytZYpaMropDUws=
+@@ -84,6 +88,8 @@ github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd h1:TRLaZ9cD/w
+ github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
+ github.com/modern-go/reflect2 v1.0.2 h1:xBagoLtFs94CBntxluKeaWgTMpvLxC4ur3nMaC9Gz0M=
+ github.com/modern-go/reflect2 v1.0.2/go.mod h1:yWuevngMOJpCy52FWWMvUC8ws7m/LJsjYzDa0/r8luk=
++github.com/montanaflynn/stats v0.7.1 h1:etflOAAHORrCC44V+aR6Ftzort912ZU+YLiSTuV8eaE=
++github.com/montanaflynn/stats v0.7.1/go.mod h1:etXPPgVO6n31NxCd9KQUMvCM+ve0ruNzt6R8Bnaayow=
+ github.com/pelletier/go-toml/v2 v2.2.2 h1:aYUidT7k73Pcl9nb2gScu7NSrKCSHIDE89b3+6Wq+LM=
+ github.com/pelletier/go-toml/v2 v2.2.2/go.mod h1:1t835xjRzz80PqgE6HHgN2JOsmgYu/h4qDAS4n929Rs=
+ github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
+@@ -125,6 +131,17 @@ github.com/twitchyliquid64/golang-asm v0.15.1 h1:SU5vSMR7hnwNxj24w34ZyCi/FmDZTkS
+ github.com/twitchyliquid64/golang-asm v0.15.1/go.mod h1:a1lVb/DtPvCB8fslRZhAngC2+aY1QWCk3Cedj/Gdt08=
+ github.com/ugorji/go/codec v1.2.12 h1:9LC83zGrHhuUA9l16C9AHXAqEV/2wBQ4nkvumAE65EE=
+ github.com/ugorji/go/codec v1.2.12/go.mod h1:UNopzCgEMSXjBc6AOMqYvWC1ktqTAfzJZUZgYf6w6lg=
++github.com/xdg-go/pbkdf2 v1.0.0 h1:Su7DPu48wXMwC3bs7MCNG+z4FhcyEuz5dlvchbq0B0c=
++github.com/xdg-go/pbkdf2 v1.0.0/go.mod h1:jrpuAogTd400dnrH08LKmI/xc1MbPOebTwRqcT5RDeI=
++github.com/xdg-go/scram v1.1.2 h1:FHX5I5B4i4hKRVRBCFRxq1iQRej7WO3hhBuJf+UUySY=
++github.com/xdg-go/scram v1.1.2/go.mod h1:RT/sEzTbU5y00aCK8UOx6R7YryM0iF1N2MOmC3kKLN4=
++github.com/xdg-go/stringprep v1.0.4 h1:XLI/Ng3O1Atzq0oBs3TWm+5ZVgkq2aqdlvP9JtoZ6c8=
++github.com/xdg-go/stringprep v1.0.4/go.mod h1:mPGuuIYwz7CmR2bT9j4GbQqutWS1zV24gijq1dTyGkM=
++github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 h1:ilQV1hzziu+LLM3zUTJ0trRztfwgjqKnBWNtSRkbmwM=
++github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78/go.mod h1:aL8wCCfTfSfmXjznFBSZNN13rSJjlIOI1fUNAtF7rmI=
++github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
++go.mongodb.org/mongo-driver v1.17.2 h1:gvZyk8352qSfzyZ2UMWcpDpMSGEr1eqE4T793SqyhzM=
++go.mongodb.org/mongo-driver v1.17.2/go.mod h1:Hy04i7O2kC4RS06ZrhPRqj/u4DTYkFDAAccj+rVKqgQ=
+ go.uber.org/atomic v1.9.0 h1:ECmE8Bn/WFTYwEW/bpKD3M8VtR/zQVbavAoalC1PYyE=
+ go.uber.org/atomic v1.9.0/go.mod h1:fEN4uk6kAWBTFdckzkM89CLk9XfWZrxpCo0nPH17wJc=
+ go.uber.org/multierr v1.9.0 h1:7fIwc/ZtS0q++VgcfqFDxSBZVv/Xo49/SYnDFupUwlI=
+@@ -132,20 +149,51 @@ go.uber.org/multierr v1.9.0/go.mod h1:X2jQV1h+kxSjClGpnseKVIxpmcjrj7MNnI0bnlfKTV
+ golang.org/x/arch v0.0.0-20210923205945-b76863e36670/go.mod h1:5om86z9Hs0C8fWVUuoMHwpExlXzs5Tkyp9hOrfG7pp8=
+ golang.org/x/arch v0.8.0 h1:3wRIsP3pM4yUptoR96otTUOXI367OS0+c9eeRi9doIc=
+ golang.org/x/arch v0.8.0/go.mod h1:FEVrYAQjsQXMVJ1nsMoVVXPZg6p2JE2mx8psSWTDQys=
++golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
++golang.org/x/crypto v0.0.0-20210921155107-089bfa567519/go.mod h1:GvvjBRRGRdwPK5ydBHafDWAxML/pGHZbMvKqRZ5+Abc=
+ golang.org/x/crypto v0.23.0 h1:dIJU/v2J8Mdglj/8rJ6UUOM3Zc9zLZxVZwwxMooUSAI=
+ golang.org/x/crypto v0.23.0/go.mod h1:CKFgDieR+mRhux2Lsu27y0fO304Db0wZe70UKqHu0v8=
++golang.org/x/crypto v0.26.0 h1:RrRspgV4mU+YwB4FYnuBoKsUapNIL5cohGAmSH3azsw=
++golang.org/x/crypto v0.26.0/go.mod h1:GY7jblb9wI+FOo5y8/S2oY4zWP07AkOJ4+jxCqdqn54=
+ golang.org/x/exp v0.0.0-20230905200255-921286631fa9 h1:GoHiUyI/Tp2nVkLI2mCxVkOjsbSXD66ic0XW0js0R9g=
+ golang.org/x/exp v0.0.0-20230905200255-921286631fa9/go.mod h1:S2oDrQGGwySpoQPVqRShND87VCbxmc6bL1Yd2oYrm6k=
++golang.org/x/mod v0.6.0-dev.0.20220419223038-86c51ed26bb4/go.mod h1:jJ57K6gSWd91VN4djpZkiMVwK6gcyfeH4XE8wZrZaV4=
++golang.org/x/net v0.0.0-20190620200207-3b0461eec859/go.mod h1:z5CRVTTTmAJ677TzLLGU+0bjPO0LkuOLi4/5GtJWs/s=
++golang.org/x/net v0.0.0-20210226172049-e18ecbb05110/go.mod h1:m0MpNAwzfU5UDzcl9v0D8zg8gWTRqZa9RBIspLL5mdg=
++golang.org/x/net v0.0.0-20220722155237-a158d28d115b/go.mod h1:XRhObCWvk6IyKnWLug+ECip1KBveYUHfp+8e9klMJ9c=
+ golang.org/x/net v0.25.0 h1:d/OCCoBEUq33pjydKrGQhw7IlUPI2Oylr+8qLx49kac=
+ golang.org/x/net v0.25.0/go.mod h1:JkAGAh7GEvH74S6FOH42FLoXpXbE/aqXSrIQjXgsiwM=
++golang.org/x/sync v0.0.0-20190423024810-112230192c58/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
++golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
+ golang.org/x/sync v0.6.0 h1:5BMeUDZ7vkXGfEr1x9B4bRcTH4lpkTkpdh0T/J+qjbQ=
+ golang.org/x/sync v0.6.0/go.mod h1:Czt+wKu1gCyEFDUtn0jG5QVvpJ6rzVqr5aXyt9drQfk=
++golang.org/x/sync v0.8.0 h1:3NFvSEYkUoMifnESzZl15y791HH1qU2xm6eCJU5ZPXQ=
++golang.org/x/sync v0.8.0/go.mod h1:Czt+wKu1gCyEFDUtn0jG5QVvpJ6rzVqr5aXyt9drQfk=
++golang.org/x/sys v0.0.0-20190215142949-d0b11bdaac8a/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
++golang.org/x/sys v0.0.0-20201119102817-f84b799fce68/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
++golang.org/x/sys v0.0.0-20210615035016-665e8c7367d1/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
++golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
++golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.5.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.6.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.20.0 h1:Od9JTbYCk261bKm4M/mw7AklTlFYIa0bIp9BgSm1S8Y=
+ golang.org/x/sys v0.20.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
++golang.org/x/sys v0.23.0 h1:YfKFowiIMvtgl1UERQoTPPToxltDeZfbj4H7dVUCwmM=
++golang.org/x/sys v0.23.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
++golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1/go.mod h1:bj7SfCRtBDWHUb9snDiAeCFNEtKQo2Wmx5Cou7ajbmo=
++golang.org/x/term v0.0.0-20210927222741-03fcf44c2211/go.mod h1:jbD1KX2456YbFQfuXm/mYQcufACuNUgVhRMnK/tPxf8=
++golang.org/x/text v0.3.0/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
++golang.org/x/text v0.3.3/go.mod h1:5Zoc/QRtKVWzQhOtBMvqHzDpF6irO9z98xDceosuGiQ=
++golang.org/x/text v0.3.7/go.mod h1:u+2+/6zg+i71rQMx5EYifcz6MCKuco9NR6JIITiCfzQ=
++golang.org/x/text v0.3.8/go.mod h1:E6s5w1FMmriuDzIBO73fBruAKo1PCIq6d2Q6DHfQ8WQ=
+ golang.org/x/text v0.15.0 h1:h1V/4gjBv8v9cjcR6+AR5+/cIYK5N/WAgiv4xlsEtAk=
+ golang.org/x/text v0.15.0/go.mod h1:18ZOQIKpY8NJVqYksKHtTdi31H5itFRjB5/qKTNYzSU=
++golang.org/x/text v0.17.0 h1:XtiM5bkSOt+ewxlOE/aE/AKEHibwj/6gvWMl9Rsh0Qc=
++golang.org/x/text v0.17.0/go.mod h1:BuEKDfySbSR4drPmRPG/7iBdf8hvFMuRexcpahXilzY=
++golang.org/x/tools v0.0.0-20180917221912-90fa682c2a6e/go.mod h1:n7NCudcB/nEzxVGmLbDWY5pfWTLqBcC2KZ6jyYvM4mQ=
++golang.org/x/tools v0.0.0-20191119224855-298f0cb1881e/go.mod h1:b+2E5dAYhXwXZwtnZ6UAqBI28+e2cm9otk0dWdXHAEo=
++golang.org/x/tools v0.1.12/go.mod h1:hNGJHUnrk76NpqgfD5Aqm5Crs+Hm0VOH/i9J2+nxYbc=
++golang.org/x/xerrors v0.0.0-20190717185122-a985d3407aa7/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
+ google.golang.org/protobuf v1.34.1 h1:9ddQBjfCyZPOHPUiPxpYESBLc+T8P3E+Vo4IbKZgFWg=
+ google.golang.org/protobuf v1.34.1/go.mod h1:c6P6GXX6sHbq/GpV6MGZEdwhWPcYBgnhAHhKbcUYpos=
+ gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
+diff --git a/internal/model/user_dto.go b/internal/model/user_dto.go
+index 0070265..65c7680 100644
+--- a/internal/model/user_dto.go
++++ b/internal/model/user_dto.go
+@@ -2,19 +2,21 @@ package model
+ 
+ // CreateUserRequest 创建用户请求
+ type CreateUserRequest struct {
+-	Username string `json:"username" binding:"required"`
+-	Password string `json:"password" binding:"required"`
+-	Nickname string `json:"nickname"`
+-	Email    string `json:"email"`
+-	Phone    string `json:"phone"`
++	Username string                `json:"username" binding:"required"`
++	Password string                `json:"password" binding:"required"`
++	Nickname string                `json:"nickname"`
++	Email    string                `json:"email"`
++	Phone    string                `json:"phone"`
++	Profile  *CreateProfileRequest `json:"profile"`
+ }
+ 
+ // UpdateUserRequest 更新用户请求
+ type UpdateUserRequest struct {
+-	Nickname string     `json:"nickname"`
+-	Email    string     `json:"email"`
+-	Phone    string     `json:"phone"`
+-	Status   UserStatus `json:"status"`
++	Nickname string                `json:"nickname"`
++	Email    string                `json:"email"`
++	Phone    string                `json:"phone"`
++	Status   UserStatus            `json:"status"`
++	Profile  *UpdateProfileRequest `json:"profile"`
+ }
+ 
+ // UpdatePasswordRequest 更新密码请求
+@@ -32,6 +34,7 @@ type UserResponse struct {
+ 	Email     string     `json:"email"`
+ 	Phone     string     `json:"phone"`
+ 	Status    UserStatus `json:"status"`
++	Profile   *Profile   `json:"profile,omitempty"`
+ 	CreatedAt string     `json:"created_at"`
+ 	UpdatedAt string     `json:"updated_at"`
+ }
+diff --git a/internal/service/user.go b/internal/service/user.go
+index 524a854..cbfa7ad 100644
+--- a/internal/service/user.go
++++ b/internal/service/user.go
+@@ -20,6 +20,7 @@ var (
+ type UserService interface {
+ 	CreateUser(ctx context.Context, appID string, req *model.CreateUserRequest) (*model.User, error)
+ 	GetUser(ctx context.Context, id string) (*model.User, error)
++	GetUserWithProfile(ctx context.Context, id string) (*model.User, *model.Profile, error)
+ 	UpdateUser(ctx context.Context, id string, req *model.UpdateUserRequest) (*model.User, error)
+ 	UpdatePassword(ctx context.Context, id string, req *model.UpdatePasswordRequest) error
+ 	DeleteUser(ctx context.Context, id string) error
+@@ -29,15 +30,17 @@ type UserService interface {
+ 
+ // userService 用户服务实现
+ type userService struct {
+-	userRepo repository.UserRepository
+-	appRepo  repository.AppRepository
++	userRepo   repository.UserRepository
++	appRepo    repository.AppRepository
++	profileSvc ProfileService
+ }
+ 
+ // NewUserService 创建用户服务实例
+-func NewUserService(userRepo repository.UserRepository, appRepo repository.AppRepository) UserService {
++func NewUserService(userRepo repository.UserRepository, appRepo repository.AppRepository, profileSvc ProfileService) UserService {
+ 	return &userService{
+-		userRepo: userRepo,
+-		appRepo:  appRepo,
++		userRepo:   userRepo,
++		appRepo:    appRepo,
++		profileSvc: profileSvc,
+ 	}
+ }
+ 
+@@ -75,6 +78,14 @@ func (s *userService) CreateUser(ctx context.Context, appID string, req *model.C
+ 		return nil, err
+ 	}
+ 
++	// 如果请求中包含Profile信息,创建用户档案
++	if req.Profile != nil {
++		if _, err := s.profileSvc.CreateProfile(ctx, user.ID, appID, req.Profile); err != nil {
++			// 如果创建档案失败,记录错误但不影响用户创建
++			log.Printf("创建用户档案失败: %v", err)
++		}
++	}
++
+ 	return user, nil
+ }
+ 
+@@ -90,6 +101,24 @@ func (s *userService) GetUser(ctx context.Context, id string) (*model.User, erro
+ 	return user, nil
+ }
+ 
++// GetUserWithProfile 获取用户及其档案信息
++func (s *userService) GetUserWithProfile(ctx context.Context, id string) (*model.User, *model.Profile, error) {
++	user, err := s.userRepo.GetByID(ctx, id)
++	if err != nil {
++		return nil, nil, err
++	}
++	if user == nil {
++		return nil, nil, ErrUserNotFound
++	}
++
++	profile, err := s.profileSvc.GetProfileByUserID(ctx, id)
++	if err != nil && err != ErrProfileNotFound {
++		return user, nil, err
++	}
++
++	return user, profile, nil
++}
++
+ // UpdateUser 更新用户
+ func (s *userService) UpdateUser(ctx context.Context, id string, req *model.UpdateUserRequest) (*model.User, error) {
+ 	user, err := s.userRepo.GetByID(ctx, id)
+@@ -109,6 +138,21 @@ func (s *userService) UpdateUser(ctx context.Context, id string, req *model.Upda
+ 		return nil, err
+ 	}
+ 
++	// 如果请求中包含Profile信息,更新用户档案
++	if req.Profile != nil {
++		profile, err := s.profileSvc.GetProfileByUserID(ctx, id)
++		if err != nil && err != ErrProfileNotFound {
++			return user, err
++		}
++
++		if profile != nil {
++			if _, err := s.profileSvc.UpdateProfile(ctx, profile.ID.Hex(), req.Profile); err != nil {
++				// 如果更新档案失败,记录错误但不影响用户更新
++				log.Printf("更新用户档案失败: %v", err)
++			}
++		}
++	}
++
+ 	return user, nil
+ }
+ 
+@@ -155,6 +199,18 @@ func (s *userService) DeleteUser(ctx context.Context, id string) error {
+ 		return ErrUserNotFound
+ 	}
+ 
++	// 删除用户档案
++	profile, err := s.profileSvc.GetProfileByUserID(ctx, id)
++	if err != nil && err != ErrProfileNotFound {
++		return err
++	}
++	if profile != nil {
++		if err := s.profileSvc.DeleteProfile(ctx, profile.ID.Hex()); err != nil {
++			// 如果删除档案失败,记录错误但不影响用户删除
++			log.Printf("删除用户档案失败: %v", err)
++		}
++	}
++
+ 	return s.userRepo.Delete(ctx, id)
+ }
+ 
+diff --git a/main.go b/main.go
+index 23348b2..0dbbd6d 100644
+--- a/main.go
++++ b/main.go
+@@ -36,6 +36,19 @@ func main() {
+ 	}
+ 	log.Printf("Successfully connected to database")
+ 
++	// 连接MongoDB
++	mongodbConfig := &database.MongoDBConfig{
++		URI:         cfg.MongoDB.URI,
++		Database:    cfg.MongoDB.Database,
++		MaxPoolSize: cfg.MongoDB.MaxPoolSize,
++		MinPoolSize: cfg.MongoDB.MinPoolSize,
++	}
++	mongodb, err := database.NewMongoClient(mongodbConfig)
++	if err != nil {
++		log.Fatalf("Failed to connect to MongoDB: %v", err)
++	}
++	log.Printf("Successfully connected to MongoDB")
++
+ 	// 自动迁移数据库表
+ 	if err := db.AutoMigrate(
+ 		&model.App{},
+@@ -59,6 +72,7 @@ func main() {
+ 		log.Fatalf("Failed to get underlying *sql.DB: %v", err)
+ 	}
+ 	defer sqlDB.Close()
++	defer mongodb.Close(nil)
+ 
+ 	// 初始化Redis客户端
+ 	redisClient, err := redis.NewClient(&redis.Config{
+@@ -82,6 +96,10 @@ func main() {
+ 	oauthClientSecretRepo := repository.NewOAuthClientSecretRepository(db)
+ 	authCodeRepo := repository.NewAuthorizationCodeRepository(db)
+ 
++	// 初始化MongoDB仓储层
++	profileRepo := repository.NewProfileRepository(mongodb)
++	fileRepo := repository.NewFileRepository(mongodb)
++
+ 	// 初始化Token服务
+ 	tokenService := service.NewTokenService(
+ 		redisClient,
+@@ -98,7 +116,9 @@ func main() {
+ 
+ 	// 初始化服务层
+ 	appService := service.NewAppService(appRepo)
+-	userService := service.NewUserService(userRepo, appRepo)
++	fileService := service.NewFileService(fileRepo)
++	profileService := service.NewProfileService(profileRepo, fileRepo)
++	userService := service.NewUserService(userRepo, appRepo, profileService)
+ 	ruleService := service.NewRuleService(ruleRepo, ruleEngine)
+ 	authService := service.NewAuthService(userRepo, tokenService, ruleService)
+ 	roleService := service.NewRoleService(roleRepo, permissionRepo)
+@@ -124,6 +144,8 @@ func main() {
+ 	ruleHandler := v1.NewRuleHandler(ruleService)
+ 	oauthClientHandler := v1.NewOAuthClientHandler(oauthClientService)
+ 	authorizationHandler := v1.NewAuthorizationHandler(authorizationService)
++	profileHandler := v1.NewProfileHandler(profileService)
++	fileHandler := v1.NewFileHandler(fileService)
+ 
+ 	// 初始化路由管理器
+ 	router := router.NewRouter(
+@@ -137,6 +159,8 @@ func main() {
+ 		ruleHandler,
+ 		oauthClientHandler,
+ 		authorizationHandler,
++		profileHandler,
++		fileHandler,
+ 	)
+ 
+ 	// 注册所有路由
+diff --git a/pkg/config/config.go b/pkg/config/config.go
+index 1a721d2..f8210f0 100644
+--- a/pkg/config/config.go
++++ b/pkg/config/config.go
+@@ -12,6 +12,7 @@ import (
+ type Config struct {
+ 	Server   ServerConfig
+ 	Database database.Config
++	MongoDB  MongoDBConfig
+ 	Redis    RedisConfig
+ 	JWT      JWTConfig
+ }
+@@ -23,6 +24,14 @@ type ServerConfig struct {
+ 	AuthEnabled bool `mapstructure:"auth_enabled"` // 是否启用认证
+ }
+ 
++// MongoDBConfig MongoDB配置
++type MongoDBConfig struct {
++	URI         string `mapstructure:"uri"`
++	Database    string `mapstructure:"database"`
++	MaxPoolSize uint64 `mapstructure:"max_pool_size"`
++	MinPoolSize uint64 `mapstructure:"min_pool_size"`
++}
++
+ // RedisConfig Redis配置
+ type RedisConfig struct {
+ 	Host     string
+diff --git a/pkg/router/router.go b/pkg/router/router.go
+index bd96dce..21534b5 100644
+--- a/pkg/router/router.go
++++ b/pkg/router/router.go
+@@ -20,6 +20,8 @@ type Router struct {
+ 	ruleHandler        *v1.RuleHandler
+ 	oauthClientHandler *v1.OAuthClientHandler
+ 	authzHandler       *v1.AuthorizationHandler
++	profileHandler     *v1.ProfileHandler
++	fileHandler        *v1.FileHandler
+ }
+ 
+ // NewRouter 创建路由管理器实例
+@@ -34,6 +36,8 @@ func NewRouter(
+ 	ruleHandler *v1.RuleHandler,
+ 	oauthClientHandler *v1.OAuthClientHandler,
+ 	authzHandler *v1.AuthorizationHandler,
++	profileHandler *v1.ProfileHandler,
++	fileHandler *v1.FileHandler,
+ ) *Router {
+ 	return &Router{
+ 		engine:             engine,
+@@ -46,6 +50,8 @@ func NewRouter(
+ 		ruleHandler:        ruleHandler,
+ 		oauthClientHandler: oauthClientHandler,
+ 		authzHandler:       authzHandler,
++		profileHandler:     profileHandler,
++		fileHandler:        fileHandler,
+ 	}
+ }
+ 
+@@ -75,6 +81,10 @@ func (r *Router) RegisterRoutes() {
+ 		r.registerOAuthRoutes(api)
+ 		// 注册OAuth授权相关路由
+ 		r.registerAuthorizationRoutes(api)
++		// 注册Profile相关路由
++		r.registerProfileRoutes(api)
++		// 注册文件相关路由
++		r.registerFileRoutes(api)
+ 	}
+ }
+ 
+@@ -148,3 +158,13 @@ func (r *Router) registerOAuthRoutes(group *gin.RouterGroup) {
+ func (r *Router) registerAuthorizationRoutes(group *gin.RouterGroup) {
+ 	r.authzHandler.Register(group, r.authMiddleware)
+ }
++
++// registerProfileRoutes 注册Profile相关路由
++func (r *Router) registerProfileRoutes(group *gin.RouterGroup) {
++	r.profileHandler.Register(group, r.authMiddleware)
++}
++
++// registerFileRoutes 注册文件相关路由
++func (r *Router) registerFileRoutes(group *gin.RouterGroup) {
++	r.fileHandler.Register(group, r.authMiddleware)
++}

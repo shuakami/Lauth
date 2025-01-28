@@ -20,6 +20,7 @@ var (
 type UserService interface {
 	CreateUser(ctx context.Context, appID string, req *model.CreateUserRequest) (*model.User, error)
 	GetUser(ctx context.Context, id string) (*model.User, error)
+	GetUserWithProfile(ctx context.Context, id string) (*model.User, *model.Profile, error)
 	UpdateUser(ctx context.Context, id string, req *model.UpdateUserRequest) (*model.User, error)
 	UpdatePassword(ctx context.Context, id string, req *model.UpdatePasswordRequest) error
 	DeleteUser(ctx context.Context, id string) error
@@ -29,15 +30,17 @@ type UserService interface {
 
 // userService 用户服务实现
 type userService struct {
-	userRepo repository.UserRepository
-	appRepo  repository.AppRepository
+	userRepo   repository.UserRepository
+	appRepo    repository.AppRepository
+	profileSvc ProfileService
 }
 
 // NewUserService 创建用户服务实例
-func NewUserService(userRepo repository.UserRepository, appRepo repository.AppRepository) UserService {
+func NewUserService(userRepo repository.UserRepository, appRepo repository.AppRepository, profileSvc ProfileService) UserService {
 	return &userService{
-		userRepo: userRepo,
-		appRepo:  appRepo,
+		userRepo:   userRepo,
+		appRepo:    appRepo,
+		profileSvc: profileSvc,
 	}
 }
 
@@ -75,6 +78,14 @@ func (s *userService) CreateUser(ctx context.Context, appID string, req *model.C
 		return nil, err
 	}
 
+	// 如果请求中包含Profile信息,创建用户档案
+	if req.Profile != nil {
+		if _, err := s.profileSvc.CreateProfile(ctx, user.ID, appID, req.Profile); err != nil {
+			// 如果创建档案失败,记录错误但不影响用户创建
+			log.Printf("创建用户档案失败: %v", err)
+		}
+	}
+
 	return user, nil
 }
 
@@ -88,6 +99,24 @@ func (s *userService) GetUser(ctx context.Context, id string) (*model.User, erro
 		return nil, ErrUserNotFound
 	}
 	return user, nil
+}
+
+// GetUserWithProfile 获取用户及其档案信息
+func (s *userService) GetUserWithProfile(ctx context.Context, id string) (*model.User, *model.Profile, error) {
+	user, err := s.userRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	if user == nil {
+		return nil, nil, ErrUserNotFound
+	}
+
+	profile, err := s.profileSvc.GetProfileByUserID(ctx, id)
+	if err != nil && err != ErrProfileNotFound {
+		return user, nil, err
+	}
+
+	return user, profile, nil
 }
 
 // UpdateUser 更新用户
@@ -107,6 +136,21 @@ func (s *userService) UpdateUser(ctx context.Context, id string, req *model.Upda
 
 	if err := s.userRepo.Update(ctx, user); err != nil {
 		return nil, err
+	}
+
+	// 如果请求中包含Profile信息,更新用户档案
+	if req.Profile != nil {
+		profile, err := s.profileSvc.GetProfileByUserID(ctx, id)
+		if err != nil && err != ErrProfileNotFound {
+			return user, err
+		}
+
+		if profile != nil {
+			if _, err := s.profileSvc.UpdateProfile(ctx, profile.ID.Hex(), req.Profile); err != nil {
+				// 如果更新档案失败,记录错误但不影响用户更新
+				log.Printf("更新用户档案失败: %v", err)
+			}
+		}
 	}
 
 	return user, nil
@@ -153,6 +197,18 @@ func (s *userService) DeleteUser(ctx context.Context, id string) error {
 	}
 	if user == nil {
 		return ErrUserNotFound
+	}
+
+	// 删除用户档案
+	profile, err := s.profileSvc.GetProfileByUserID(ctx, id)
+	if err != nil && err != ErrProfileNotFound {
+		return err
+	}
+	if profile != nil {
+		if err := s.profileSvc.DeleteProfile(ctx, profile.ID.Hex()); err != nil {
+			// 如果删除档案失败,记录错误但不影响用户删除
+			log.Printf("删除用户档案失败: %v", err)
+		}
 	}
 
 	return s.userRepo.Delete(ctx, id)

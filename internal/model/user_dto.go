@@ -2,19 +2,21 @@ package model
 
 // CreateUserRequest 创建用户请求
 type CreateUserRequest struct {
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required"`
-	Nickname string `json:"nickname"`
-	Email    string `json:"email"`
-	Phone    string `json:"phone"`
+	Username string                `json:"username" binding:"required"`
+	Password string                `json:"password" binding:"required"`
+	Nickname string                `json:"nickname"`
+	Email    string                `json:"email"`
+	Phone    string                `json:"phone"`
+	Profile  *CreateProfileRequest `json:"profile"`
 }
 
 // UpdateUserRequest 更新用户请求
 type UpdateUserRequest struct {
-	Nickname string     `json:"nickname"`
-	Email    string     `json:"email"`
-	Phone    string     `json:"phone"`
-	Status   UserStatus `json:"status"`
+	Nickname string                `json:"nickname"`
+	Email    string                `json:"email"`
+	Phone    string                `json:"phone"`
+	Status   UserStatus            `json:"status"`
+	Profile  *UpdateProfileRequest `json:"profile"`
 }
 
 // UpdatePasswordRequest 更新密码请求
@@ -32,6 +34,7 @@ type UserResponse struct {
 	Email     string     `json:"email"`
 	Phone     string     `json:"phone"`
 	Status    UserStatus `json:"status"`
+	Profile   *Profile   `json:"profile,omitempty"`
 	CreatedAt string     `json:"created_at"`
 	UpdatedAt string     `json:"updated_at"`
 }

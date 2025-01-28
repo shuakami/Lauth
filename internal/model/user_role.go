@@ -33,11 +33,3 @@ func (ur *UserRole) BeforeCreate(tx *gorm.DB) error {
 func (UserRole) TableName() string {
 	return "user_roles"
 }
-
-// 更新User模型，添加角色关联
-func init() {
-	// 在User模型中添加Roles字段
-	type User struct {
-		Roles []Role `gorm:"many2many:user_roles;" json:"roles,omitempty"`
-	}
-}

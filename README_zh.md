@@ -47,6 +47,11 @@ LAuth 是一个企业级统一认证平台，为多个应用提供集中式的�
   - 审计日志
   - 可配置的认证流程
   - 高性能缓存
+- **用户档案管理**：
+  - 灵活的档案模式
+  - 自定义字段支持
+  - 基于MongoDB的档案存储
+  - 与用户管理无缝集成
 
 ## 系统架构
 
@@ -75,7 +80,9 @@ LAuth 是一个企业级统一认证平台，为多个应用提供集中式的�
 ## 技术栈
 
 - **开发语言**：Go 1.19+
-- **数据库**：PostgreSQL
+- **数据库**：
+  - PostgreSQL（核心数据）
+  - MongoDB（档案数据）
 - **缓存**：Redis
 - **认证机制**：JWT
 - **API框架**：基于 Gin 的 RESTful API
@@ -87,6 +94,7 @@ LAuth 是一个企业级统一认证平台，为多个应用提供集中式的�
 
 - Go 1.19 或更高版本
 - PostgreSQL 12 或更高版本
+- MongoDB 4.4 或更高版本
 - Redis 6 或更高版本
 
 ### 安装步骤
@@ -134,11 +142,20 @@ go run main.go
 ### 用户管理
 
 - `POST /api/v1/apps/:id/users` - 创建用户
-- `GET /api/v1/apps/:id/users/:user_id` - 获取用户详情
+- `GET /api/v1/apps/:id/users/:user_id` - 获取用户详情（含档案）
 - `PUT /api/v1/apps/:id/users/:user_id` - 更新用户
 - `DELETE /api/v1/apps/:id/users/:user_id` - 删除用户
-- `GET /api/v1/apps/:id/users` - 用户列表
+- `GET /api/v1/apps/:id/users` - 用户列表（含档案）
 - `PUT /api/v1/apps/:id/users/:user_id/password` - 更新密码
+
+### 档案管理
+
+- `GET /api/v1/apps/:id/users/:user_id/profile` - 获取用户档案
+- `PUT /api/v1/apps/:id/users/:user_id/profile` - 更新用户档案
+- `DELETE /api/v1/apps/:id/users/:user_id/profile` - 删除用户档案
+- `POST /api/v1/apps/:id/users/:user_id/profile/files` - 上传档案文件
+- `GET /api/v1/apps/:id/users/:user_id/profile/files/:file_id` - 获取档案文件
+- `DELETE /api/v1/apps/:id/users/:user_id/profile/files/:file_id` - 删除档案文件
 
 ### 角色管理
 
