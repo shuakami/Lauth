@@ -33,11 +33,17 @@ LAuth 是一个企业级统一认证平台，为多个应用提供集中式的�
   - 客户端管理
   - 安全的令牌处理
   - 可自定义的权限范围
+  - 令牌检查
+  - 令牌撤销
 - **OpenID Connect 支持**：
+  - 完整的OAuth 2.0集成
   - ID令牌支持
   - 标准Claims
-  - 多种响应类型
+  - 多种响应类型（code、id_token、code id_token）
   - OIDC发现服务
+  - JWKS端点
+  - 用户信息端点
+  - 标准OIDC参数（nonce、prompt、max_age等）
 - **安全性设计**：
   - 基于 JWT 的认证机制
   - 令牌撤销功能
@@ -202,11 +208,22 @@ go run main.go
 
 ### OAuth 2.0 和 OpenID Connect
 
-- `GET /api/v1/oauth/authorize` - OAuth/OIDC 授权端点
+#### OAuth 2.0 端点
+- `POST /api/v1/oauth/clients` - 创建OAuth客户端
+- `GET /api/v1/oauth/clients/:client_id` - 获取OAuth客户端详情
+- `PUT /api/v1/oauth/clients/:client_id` - 更新OAuth客户端
+- `DELETE /api/v1/oauth/clients/:client_id` - 删除OAuth客户端
+- `GET /api/v1/oauth/clients` - OAuth客户端列表
+- `POST /api/v1/oauth/authorize` - 授权端点
 - `POST /api/v1/oauth/token` - 令牌端点
-- `GET /api/v1/users/me` - 获取当前用户信息
+- `POST /api/v1/oauth/revoke` - 令牌撤销端点
+- `POST /api/v1/oauth/introspect` - 令牌检查端点
+
+#### OpenID Connect 端点
 - `GET /.well-known/openid-configuration` - OIDC发现端点
 - `GET /.well-known/jwks.json` - JWKS端点
+- `GET /api/v1/userinfo` - 用户信息端点
+- `GET /api/v1/users/me` - 获取当前用户信息
 
 ## 配置说明
 

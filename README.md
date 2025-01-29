@@ -33,11 +33,17 @@ LAuth is an enterprise-grade unified authentication platform that provides centr
   - Client Management
   - Secure Token Handling
   - Customizable Scopes
+  - Token Introspection
+  - Token Revocation
 - **OpenID Connect Support**:
+  - Full OAuth 2.0 Integration
   - ID Token Support
   - Standard Claims
-  - Multiple Response Types
-  - OIDC Discovery
+  - Multiple Response Types (code, id_token, code id_token)
+  - OIDC Discovery Service
+  - JWKS Endpoint
+  - User Info Endpoint
+  - Standard OIDC Parameters (nonce, prompt, max_age, etc.)
 - **Secure by Design**: 
   - JWT-based authentication
   - Token revocation
@@ -202,11 +208,22 @@ go run main.go
 
 ### OAuth 2.0 and OpenID Connect
 
-- `GET /api/v1/oauth/authorize` - OAuth/OIDC authorization endpoint
+#### OAuth 2.0 Endpoints
+- `POST /api/v1/oauth/clients` - Create OAuth client
+- `GET /api/v1/oauth/clients/:client_id` - Get OAuth client details
+- `PUT /api/v1/oauth/clients/:client_id` - Update OAuth client
+- `DELETE /api/v1/oauth/clients/:client_id` - Delete OAuth client
+- `GET /api/v1/oauth/clients` - List OAuth clients
+- `POST /api/v1/oauth/authorize` - Authorization endpoint
 - `POST /api/v1/oauth/token` - Token endpoint
-- `GET /api/v1/users/me` - Get current user info
+- `POST /api/v1/oauth/revoke` - Token revocation endpoint
+- `POST /api/v1/oauth/introspect` - Token introspection endpoint
+
+#### OpenID Connect Endpoints
 - `GET /.well-known/openid-configuration` - OIDC discovery endpoint
 - `GET /.well-known/jwks.json` - JWKS endpoint
+- `GET /api/v1/userinfo` - UserInfo endpoint
+- `GET /api/v1/users/me` - Get current user info
 
 ## Configuration
 
