@@ -10,6 +10,7 @@ import (
 	"lauth/internal/repository"
 	"lauth/internal/service"
 	"lauth/pkg/config"
+	"lauth/pkg/crypto"
 	"lauth/pkg/database"
 	"lauth/pkg/engine"
 	"lauth/pkg/middleware"
@@ -124,7 +125,23 @@ func main() {
 	roleService := service.NewRoleService(roleRepo, permissionRepo)
 	permissionService := service.NewPermissionService(permissionRepo, roleRepo)
 	oauthClientService := service.NewOAuthClientService(oauthClientRepo, oauthClientSecretRepo)
-	authorizationService := service.NewAuthorizationService(oauthClientRepo, oauthClientSecretRepo, authCodeRepo, tokenService)
+
+	// 初始化OIDC服务
+	privateKey, publicKey, err := crypto.LoadRSAKeys(cfg.OIDC.PrivateKeyPath, cfg.OIDC.PublicKeyPath)
+	if err != nil {
+		log.Fatalf("Failed to load RSA keys: %v", err)
+	}
+	oidcService := service.NewOIDCService(userRepo, tokenService, cfg, privateKey, publicKey)
+
+	// 初始化授权服务
+	authorizationService := service.NewAuthorizationService(
+		oauthClientRepo,
+		oauthClientSecretRepo,
+		authCodeRepo,
+		userRepo,
+		tokenService,
+		oidcService,
+	)
 
 	// 创建默认的gin引擎
 	r := gin.Default()
@@ -146,6 +163,7 @@ func main() {
 	authorizationHandler := v1.NewAuthorizationHandler(authorizationService)
 	profileHandler := v1.NewProfileHandler(profileService)
 	fileHandler := v1.NewFileHandler(fileService)
+	oidcHandler := v1.NewOIDCHandler(oidcService, tokenService)
 
 	// 初始化路由管理器
 	router := router.NewRouter(
@@ -161,6 +179,7 @@ func main() {
 		authorizationHandler,
 		profileHandler,
 		fileHandler,
+		oidcHandler,
 	)
 
 	// 注册所有路由

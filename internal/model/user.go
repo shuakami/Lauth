@@ -17,19 +17,29 @@ const (
 	UserStatusEnabled                    // 启用
 )
 
-// User 用户实体
+// User 用户模型
 type User struct {
-	ID        string     `gorm:"type:uuid;primary_key" json:"id"`
-	AppID     string     `gorm:"type:uuid;not null" json:"app_id"`                                                   // 关联的应用ID
-	Username  string     `gorm:"type:varchar(100);not null;uniqueIndex:idx_app_username,priority:2" json:"username"` // 用户名，在应用内唯一
-	Password  string     `gorm:"type:varchar(100);not null" json:"-"`                                                // 密码，json中隐藏
-	Nickname  string     `gorm:"type:varchar(100)" json:"nickname"`                                                  // 昵称
-	Email     string     `gorm:"type:varchar(100)" json:"email"`                                                     // 邮箱
-	Phone     string     `gorm:"type:varchar(20)" json:"phone"`                                                      // 手机号
-	Status    UserStatus `gorm:"type:int;default:1" json:"status"`                                                   // 状态
-	App       *App       `gorm:"foreignKey:AppID" json:"-"`                                                          // 关联的应用
+	ID        string     `json:"id" gorm:"primaryKey;type:uuid"`
+	AppID     string     `json:"app_id" gorm:"index;type:uuid"`
+	Username  string     `json:"username" gorm:"type:varchar(100);uniqueIndex:idx_app_username,priority:2"`
+	Password  string     `json:"-" gorm:"type:varchar(100)"`
+	Status    UserStatus `json:"status" gorm:"type:int;default:1"`
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
+
+	// OIDC相关字段
+	Name          string `json:"name" gorm:"type:varchar(100)"`
+	Nickname      string `json:"nickname" gorm:"type:varchar(100)"`
+	Email         string `json:"email" gorm:"type:varchar(100)"`
+	EmailVerified bool   `json:"email_verified" gorm:"default:false"`
+	Phone         string `json:"phone" gorm:"type:varchar(20)"`
+	PhoneVerified bool   `json:"phone_verified" gorm:"default:false"`
+	Picture       string `json:"picture" gorm:"type:varchar(500)"`
+	Locale        string `json:"locale" gorm:"type:varchar(10)"`
+	Birthdate     string `json:"birthdate" gorm:"type:varchar(10)"`
+	Gender        string `json:"gender" gorm:"type:varchar(10)"`
+	Website       string `json:"website" gorm:"type:varchar(200)"`
+	Zoneinfo      string `json:"zoneinfo" gorm:"type:varchar(50)"`
 
 	// 角色关联
 	Roles []Role `gorm:"many2many:user_roles;" json:"roles,omitempty"`

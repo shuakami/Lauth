@@ -22,6 +22,7 @@ type Router struct {
 	authzHandler       *v1.AuthorizationHandler
 	profileHandler     *v1.ProfileHandler
 	fileHandler        *v1.FileHandler
+	oidcHandler        *v1.OIDCHandler
 }
 
 // NewRouter 创建路由管理器实例
@@ -38,6 +39,7 @@ func NewRouter(
 	authzHandler *v1.AuthorizationHandler,
 	profileHandler *v1.ProfileHandler,
 	fileHandler *v1.FileHandler,
+	oidcHandler *v1.OIDCHandler,
 ) *Router {
 	return &Router{
 		engine:             engine,
@@ -52,6 +54,7 @@ func NewRouter(
 		authzHandler:       authzHandler,
 		profileHandler:     profileHandler,
 		fileHandler:        fileHandler,
+		oidcHandler:        oidcHandler,
 	}
 }
 
@@ -85,7 +88,13 @@ func (r *Router) RegisterRoutes() {
 		r.registerProfileRoutes(api)
 		// 注册文件相关路由
 		r.registerFileRoutes(api)
+		// 注册OIDC相关路由
+		r.registerOIDCRoutes(api)
 	}
+
+	// OIDC发现端点（必须在根路径）
+	r.engine.GET("/.well-known/openid-configuration", r.oidcHandler.GetConfiguration)
+	r.engine.GET("/.well-known/jwks.json", r.oidcHandler.GetJWKS)
 }
 
 // registerAuthRoutes 注册认证相关路由
@@ -167,4 +176,9 @@ func (r *Router) registerProfileRoutes(group *gin.RouterGroup) {
 // registerFileRoutes 注册文件相关路由
 func (r *Router) registerFileRoutes(group *gin.RouterGroup) {
 	r.fileHandler.Register(group, r.authMiddleware)
+}
+
+// registerOIDCRoutes 注册OIDC相关路由
+func (r *Router) registerOIDCRoutes(group *gin.RouterGroup) {
+	r.oidcHandler.Register(group, r.authMiddleware)
 }

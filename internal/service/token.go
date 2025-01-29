@@ -21,7 +21,7 @@ var (
 // TokenService Token服务接口
 type TokenService interface {
 	// GenerateTokenPair 生成访问令牌和刷新令牌对
-	GenerateTokenPair(ctx context.Context, user *model.User) (*model.TokenPair, error)
+	GenerateTokenPair(ctx context.Context, user *model.User, scope string) (*model.TokenPair, error)
 
 	// ValidateToken 验证令牌
 	ValidateToken(ctx context.Context, tokenString string, tokenType model.TokenType) (*model.TokenClaims, error)
@@ -63,19 +63,21 @@ func (s *tokenService) generateToken(claims *model.TokenClaims, expiry time.Dura
 		"type":       claims.Type,
 		"exp":        expiresAt.Unix(),
 		"expires_at": expiresAt,
+		"scope":      claims.Scope,
 	})
 
 	return token.SignedString(s.jwtSecret)
 }
 
 // GenerateTokenPair 生成访问令牌和刷新令牌对
-func (s *tokenService) GenerateTokenPair(ctx context.Context, user *model.User) (*model.TokenPair, error) {
+func (s *tokenService) GenerateTokenPair(ctx context.Context, user *model.User, scope string) (*model.TokenPair, error) {
 	// 生成访问令牌
 	accessClaims := &model.TokenClaims{
 		UserID:   user.ID,
 		AppID:    user.AppID,
 		Username: user.Username,
 		Type:     model.AccessToken,
+		Scope:    scope,
 	}
 	accessToken, err := s.generateToken(accessClaims, s.accessExpiry)
 	if err != nil {
@@ -88,6 +90,7 @@ func (s *tokenService) GenerateTokenPair(ctx context.Context, user *model.User) 
 		AppID:    user.AppID,
 		Username: user.Username,
 		Type:     model.RefreshToken,
+		Scope:    scope,
 	}
 	refreshToken, err := s.generateToken(refreshClaims, s.refreshExpiry)
 	if err != nil {
@@ -155,12 +158,16 @@ func (s *tokenService) ValidateToken(ctx context.Context, tokenString string, to
 		return nil, ErrTokenExpired
 	}
 
+	// 获取 scope 字段
+	scope, _ := claims["scope"].(string)
+
 	return &model.TokenClaims{
 		UserID:    claims["user_id"].(string),
 		AppID:     claims["app_id"].(string),
 		Username:  claims["username"].(string),
 		Type:      model.TokenType(claims["type"].(string)),
 		ExpiresAt: expiresAt,
+		Scope:     scope,
 	}, nil
 }
 
@@ -188,7 +195,7 @@ func (s *tokenService) RefreshToken(ctx context.Context, refreshToken string) (*
 		AppID:    claims.AppID,
 		Username: claims.Username,
 	}
-	return s.GenerateTokenPair(ctx, user)
+	return s.GenerateTokenPair(ctx, user, claims.Scope)
 }
 
 // RevokeToken 吊销令牌

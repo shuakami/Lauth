@@ -33,6 +33,11 @@ LAuth is an enterprise-grade unified authentication platform that provides centr
   - Client Management
   - Secure Token Handling
   - Customizable Scopes
+- **OpenID Connect Support**:
+  - ID Token Support
+  - Standard Claims
+  - Multiple Response Types
+  - OIDC Discovery
 - **Secure by Design**: 
   - JWT-based authentication
   - Token revocation
@@ -195,22 +200,13 @@ go run main.go
 - `DELETE /api/v1/apps/:id/rules/:rule_id/conditions` - Remove rule conditions
 - `GET /api/v1/apps/:id/rules/:rule_id/conditions` - Get rule conditions
 
-### OAuth 2.0 Management
+### OAuth 2.0 and OpenID Connect
 
-- `POST /api/v1/apps/:id/oauth/clients` - Create OAuth client
-- `GET /api/v1/apps/:id/oauth/clients/:client_id` - Get OAuth client details
-- `PUT /api/v1/apps/:id/oauth/clients/:client_id` - Update OAuth client
-- `DELETE /api/v1/apps/:id/oauth/clients/:client_id` - Delete OAuth client
-- `GET /api/v1/apps/:id/oauth/clients` - List OAuth clients
-- `POST /api/v1/apps/:id/oauth/clients/:client_id/secrets` - Create client secret
-- `GET /api/v1/apps/:id/oauth/clients/:client_id/secrets` - List client secrets
-- `DELETE /api/v1/apps/:id/oauth/clients/:client_id/secrets/:secret_id` - Delete client secret
-
-### OAuth 2.0 Authorization
-
-- `GET /api/v1/oauth/authorize` - OAuth authorization endpoint
+- `GET /api/v1/oauth/authorize` - OAuth/OIDC authorization endpoint
 - `POST /api/v1/oauth/token` - Token endpoint
-- `GET /api/v1/users/me` - Get current user info (for OAuth and normal authentication)
+- `GET /api/v1/users/me` - Get current user info
+- `GET /.well-known/openid-configuration` - OIDC discovery endpoint
+- `GET /.well-known/jwks.json` - JWKS endpoint
 
 ## Configuration
 
@@ -221,6 +217,7 @@ Key configuration options:
 - Database connection
 - Redis connection
 - JWT settings
+- OIDC settings (issuer, keys)
 - Authentication options
 - Permission system settings
 - Rules engine configuration
@@ -232,8 +229,8 @@ Key configuration options:
 - [x] Rules engine
 - [x] OAuth2.0 support (Authorization Code Grant)
 - [x] OAuth2.0 Token endpoint
+- [x] OpenID Connect support
 - [ ] OAuth2.0 additional grant types
-- [ ] OpenID Connect support
 - [ ] Multi-factor authentication
 - [ ] SDK development
 - [ ] Docker support

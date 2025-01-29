@@ -33,6 +33,11 @@ LAuth 是一个企业级统一认证平台，为多个应用提供集中式的�
   - 客户端管理
   - 安全的令牌处理
   - 可自定义的权限范围
+- **OpenID Connect 支持**：
+  - ID令牌支持
+  - 标准Claims
+  - 多种响应类型
+  - OIDC发现服务
 - **安全性设计**：
   - 基于 JWT 的认证机制
   - 令牌撤销功能
@@ -195,22 +200,13 @@ go run main.go
 - `DELETE /api/v1/apps/:id/rules/:rule_id/conditions` - 删除规则条件
 - `GET /api/v1/apps/:id/rules/:rule_id/conditions` - 获取规则条件
 
-### OAuth 2.0 管理
+### OAuth 2.0 和 OpenID Connect
 
-- `POST /api/v1/apps/:id/oauth/clients` - 创建 OAuth 客户端
-- `GET /api/v1/apps/:id/oauth/clients/:client_id` - 获取 OAuth 客户端详情
-- `PUT /api/v1/apps/:id/oauth/clients/:client_id` - 更新 OAuth 客户端
-- `DELETE /api/v1/apps/:id/oauth/clients/:client_id` - 删除 OAuth 客户端
-- `GET /api/v1/apps/:id/oauth/clients` - OAuth 客户端列表
-- `POST /api/v1/apps/:id/oauth/clients/:client_id/secrets` - 创建客户端密钥
-- `GET /api/v1/apps/:id/oauth/clients/:client_id/secrets` - 客户端密钥列表
-- `DELETE /api/v1/apps/:id/oauth/clients/:client_id/secrets/:secret_id` - 删除客户端密钥
-
-### OAuth 2.0 授权
-
-- `GET /api/v1/oauth/authorize` - OAuth 授权端点
+- `GET /api/v1/oauth/authorize` - OAuth/OIDC 授权端点
 - `POST /api/v1/oauth/token` - 令牌端点
-- `GET /api/v1/users/me` - 获取当前用户信息（支持OAuth和普通认证）
+- `GET /api/v1/users/me` - 获取当前用户信息
+- `GET /.well-known/openid-configuration` - OIDC发现端点
+- `GET /.well-known/jwks.json` - JWKS端点
 
 ## 配置说明
 
@@ -221,6 +217,7 @@ LAuth 支持通过环境变量或配置文件进行配置。配置文件位于 `
 - 数据库连接
 - Redis 连接
 - JWT 设置
+- OIDC 设置（颁发者、密钥）
 - 认证选项
 - 权限系统设置
 - 规则引擎配置
@@ -232,8 +229,8 @@ LAuth 支持通过环境变量或配置文件进行配置。配置文件位于 `
 - [x] 规则引擎
 - [x] OAuth2.0 支持（授权码模式）
 - [x] OAuth2.0 令牌端点
+- [x] OpenID Connect 支持
 - [ ] OAuth2.0 其他授权模式
-- [ ] OpenID Connect 支持
 - [ ] 多因素认证
 - [ ] SDK 开发
 - [ ] Docker 支持

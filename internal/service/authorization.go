@@ -25,7 +25,9 @@ type authorizationService struct {
 	clientRepo   repository.OAuthClientRepository
 	secretRepo   repository.OAuthClientSecretRepository
 	codeRepo     repository.AuthorizationCodeRepository
+	userRepo     repository.UserRepository
 	tokenService TokenService
+	oidcService  OIDCService
 }
 
 // NewAuthorizationService 创建授权服务实例
@@ -33,13 +35,17 @@ func NewAuthorizationService(
 	clientRepo repository.OAuthClientRepository,
 	secretRepo repository.OAuthClientSecretRepository,
 	codeRepo repository.AuthorizationCodeRepository,
+	userRepo repository.UserRepository,
 	tokenService TokenService,
+	oidcService OIDCService,
 ) AuthorizationService {
 	return &authorizationService{
 		clientRepo:   clientRepo,
 		secretRepo:   secretRepo,
 		codeRepo:     codeRepo,
+		userRepo:     userRepo,
 		tokenService: tokenService,
+		oidcService:  oidcService,
 	}
 }
 
@@ -105,6 +111,25 @@ func (s *authorizationService) Authorize(ctx context.Context, userID string, req
 	if req.State != "" {
 		query.Set("state", req.State)
 	}
+
+	// 如果响应类型包含 id_token，生成并返回 ID Token
+	if req.ResponseType == model.CodeIDTokenResponse {
+		// 获取用户信息
+		user, err := s.userRepo.GetByID(ctx, userID)
+		if err != nil {
+			log.Printf("Failed to get user info: %v", err)
+			return "", fmt.Errorf("failed to get user info: %w", err)
+		}
+
+		// 生成 ID Token
+		idToken, err := s.oidcService.GenerateIDToken(ctx, user, client, req.Nonce)
+		if err != nil {
+			log.Printf("Failed to generate ID token: %v", err)
+			return "", fmt.Errorf("failed to generate ID token: %w", err)
+		}
+		query.Set("id_token", idToken)
+	}
+
 	redirectURL.RawQuery = query.Encode()
 
 	finalURL := redirectURL.String()
@@ -267,7 +292,7 @@ func (s *authorizationService) handleAuthorizationCodeGrant(ctx context.Context,
 		ID:    authCode.UserID,
 		AppID: client.AppID,
 	}
-	tokenPair, err := s.tokenService.GenerateTokenPair(ctx, user)
+	tokenPair, err := s.tokenService.GenerateTokenPair(ctx, user, authCode.Scope)
 	if err != nil {
 		log.Printf("Failed to generate token pair: %v", err)
 		return nil, fmt.Errorf("failed to generate token pair: %w", err)
@@ -278,13 +303,36 @@ func (s *authorizationService) handleAuthorizationCodeGrant(ctx context.Context,
 		log.Printf("Failed to delete authorization code: %v", err)
 	}
 
-	return &model.TokenResponse{
+	response := &model.TokenResponse{
 		AccessToken:  tokenPair.AccessToken,
 		TokenType:    "Bearer",
 		ExpiresIn:    int64(tokenPair.AccessTokenExpireIn.Seconds()),
 		RefreshToken: tokenPair.RefreshToken,
 		Scope:        authCode.Scope,
-	}, nil
+	}
+
+	// 如果scope包含openid，生成ID Token
+	scopes := strings.Split(authCode.Scope, " ")
+	for _, scope := range scopes {
+		if scope == model.ScopeOpenID {
+			// 获取完整的用户信息
+			user, err = s.userRepo.GetByID(ctx, authCode.UserID)
+			if err != nil {
+				log.Printf("Failed to get user info: %v", err)
+				return nil, fmt.Errorf("failed to get user info: %w", err)
+			}
+
+			idToken, err := s.oidcService.GenerateIDToken(ctx, user, client, req.Nonce)
+			if err != nil {
+				log.Printf("Failed to generate ID token: %v", err)
+				return nil, fmt.Errorf("failed to generate ID token: %w", err)
+			}
+			response.IDToken = idToken
+			break
+		}
+	}
+
+	return response, nil
 }
 
 // handleRefreshTokenGrant 处理刷新令牌授权类型

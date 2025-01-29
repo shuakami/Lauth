@@ -1,0 +1,765 @@
+﻿diff --git a/config/config.example.yaml b/config/config.example.yaml
+index 0c42b2f..00ed3f2 100644
+--- a/config/config.example.yaml
++++ b/config/config.example.yaml
+@@ -18,6 +18,11 @@ redis:
+   db: 0        # Redis database number
+ 
+ jwt:
+-  secret: "your-secret-key-please-change-in-production"  # JWT signing key
+-  access_token_expire: 2  # Access token expiration time (hours)
+-  refresh_token_expire: 168  # Refresh token expiration time (hours) - 7 days 
+\ No newline at end of file
++  secret: "your-jwt-secret"
++  access_token_expire: 24  # 访问令牌过期时间(小时)
++  refresh_token_expire: 168 # 刷新令牌过期时间(小时)
++
++oidc:
++  issuer: "http://localhost:8080"
++  private_key_path: "config/keys/oidc.key"
++  public_key_path: "config/keys/oidc.pub" 
+\ No newline at end of file
+diff --git a/go.mod b/go.mod
+index 23e35a9..f37f8a1 100644
+--- a/go.mod
++++ b/go.mod
+@@ -4,7 +4,13 @@ go 1.21.6
+ 
+ require (
+ 	github.com/gin-gonic/gin v1.10.0
++	github.com/golang-jwt/jwt/v5 v5.2.1
++	github.com/google/uuid v1.6.0
++	github.com/lib/pq v1.10.9
++	github.com/redis/go-redis/v9 v9.7.0
+ 	github.com/spf13/viper v1.19.0
++	go.mongodb.org/mongo-driver v1.17.2
++	golang.org/x/crypto v0.26.0
+ 	gorm.io/driver/postgres v1.5.11
+ 	gorm.io/gorm v1.25.12
+ )
+@@ -22,11 +28,8 @@ require (
+ 	github.com/go-playground/locales v0.14.1 // indirect
+ 	github.com/go-playground/universal-translator v0.18.1 // indirect
+ 	github.com/go-playground/validator/v10 v10.20.0 // indirect
+-	github.com/go-redis/redis/v8 v8.11.5 // indirect
+ 	github.com/goccy/go-json v0.10.2 // indirect
+-	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
+ 	github.com/golang/snappy v0.0.4 // indirect
+-	github.com/google/uuid v1.6.0 // indirect
+ 	github.com/hashicorp/hcl v1.0.0 // indirect
+ 	github.com/jackc/pgpassfile v1.0.0 // indirect
+ 	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
+@@ -38,7 +41,6 @@ require (
+ 	github.com/klauspost/compress v1.17.2 // indirect
+ 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
+ 	github.com/leodido/go-urn v1.4.0 // indirect
+-	github.com/lib/pq v1.10.9 // indirect
+ 	github.com/magiconair/properties v1.8.7 // indirect
+ 	github.com/mattn/go-isatty v0.0.20 // indirect
+ 	github.com/mitchellh/mapstructure v1.5.0 // indirect
+@@ -46,7 +48,6 @@ require (
+ 	github.com/modern-go/reflect2 v1.0.2 // indirect
+ 	github.com/montanaflynn/stats v0.7.1 // indirect
+ 	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
+-	github.com/redis/go-redis/v9 v9.7.0 // indirect
+ 	github.com/sagikazarmark/locafero v0.4.0 // indirect
+ 	github.com/sagikazarmark/slog-shim v0.1.0 // indirect
+ 	github.com/sourcegraph/conc v0.3.0 // indirect
+@@ -60,11 +61,9 @@ require (
+ 	github.com/xdg-go/scram v1.1.2 // indirect
+ 	github.com/xdg-go/stringprep v1.0.4 // indirect
+ 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
+-	go.mongodb.org/mongo-driver v1.17.2 // indirect
+ 	go.uber.org/atomic v1.9.0 // indirect
+ 	go.uber.org/multierr v1.9.0 // indirect
+ 	golang.org/x/arch v0.8.0 // indirect
+-	golang.org/x/crypto v0.26.0 // indirect
+ 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9 // indirect
+ 	golang.org/x/net v0.25.0 // indirect
+ 	golang.org/x/sync v0.8.0 // indirect
+diff --git a/go.sum b/go.sum
+index d1f6363..34988f3 100644
+--- a/go.sum
++++ b/go.sum
+@@ -1,9 +1,11 @@
++github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=
++github.com/bsm/ginkgo/v2 v2.12.0/go.mod h1:SwYbGRRDovPVboqFv0tPTcG1sN61LM1Z4ARdbAV9g4c=
++github.com/bsm/gomega v1.27.10 h1:yeMWxP2pV2fG3FgAODIY8EiRE3dy0aeFYt4l7wh6yKA=
++github.com/bsm/gomega v1.27.10/go.mod h1:JyEr/xRbxbtgWNi8tIEVPUYZ5Dzef52k01W3YH0H+O0=
+ github.com/bytedance/sonic v1.11.6 h1:oUp34TzMlL+OY1OUWxHqsdkgC/Zfc85zGqw9siXjrc0=
+ github.com/bytedance/sonic v1.11.6/go.mod h1:LysEHSvpvDySVdC2f87zGWf6CIKJcAvqab1ZaiQtds4=
+ github.com/bytedance/sonic/loader v0.1.1 h1:c+e5Pt1k/cy5wMveRDyk2X4B9hF4g7an8N3zCYjJFNM=
+ github.com/bytedance/sonic/loader v0.1.1/go.mod h1:ncP89zfokxS5LZrJxl5z0UJcsk4M4yY2JpfqGeCtNLU=
+-github.com/cespare/xxhash/v2 v2.1.2 h1:YRXhKfTDauu4ajMg1TPgFO5jnlC2HCbmLXMcTG5cbYE=
+-github.com/cespare/xxhash/v2 v2.1.2/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
+ github.com/cespare/xxhash/v2 v2.2.0 h1:DC2CZ1Ep5Y4k3ZQ899DldepgrayRUGE6BBZ/cd9Cj44=
+ github.com/cespare/xxhash/v2 v2.2.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
+ github.com/cloudwego/base64x v0.1.4 h1:jwCgWpFanWmN8xoIUHa2rtzmkd5J2plF/dnLS6Xd/0Y=
+@@ -34,16 +36,14 @@ github.com/go-playground/universal-translator v0.18.1 h1:Bcnm0ZwsGyWbCzImXv+pAJn
+ github.com/go-playground/universal-translator v0.18.1/go.mod h1:xekY+UJKNuX9WP91TpwSH2VMlDf28Uj24BCp08ZFTUY=
+ github.com/go-playground/validator/v10 v10.20.0 h1:K9ISHbSaI0lyB2eWMPJo+kOS/FBExVwjEviJTixqxL8=
+ github.com/go-playground/validator/v10 v10.20.0/go.mod h1:dbuPbCMFw/DrkbEynArYaCwl3amGuJotoKCe95atGMM=
+-github.com/go-redis/redis/v8 v8.11.5 h1:AcZZR7igkdvfVmQTPnu9WE37LRrO/YrBH5zWyjDC0oI=
+-github.com/go-redis/redis/v8 v8.11.5/go.mod h1:gREzHqY1hg6oD9ngVRbLStwAWKhA0FEgq8Jd4h5lpwo=
+ github.com/goccy/go-json v0.10.2 h1:CrxCmQqYDkv1z7lO7Wbh2HN93uovUHgrECaO5ZrCXAU=
+ github.com/goccy/go-json v0.10.2/go.mod h1:6MelG93GURQebXPDq3khkgXZkazVtN9CRI+MGFi0w8I=
+ github.com/golang-jwt/jwt/v5 v5.2.1 h1:OuVbFODueb089Lh128TAcimifWaLhJwVflnrgM17wHk=
+ github.com/golang-jwt/jwt/v5 v5.2.1/go.mod h1:pqrtFR0X4osieyHYxtmOUWsAWrfe1Q5UVIyoH402zdk=
+ github.com/golang/snappy v0.0.4 h1:yAGX7huGHXlcLOEtBnF4w7FQwA26wojNCwOYAEhLjQM=
+ github.com/golang/snappy v0.0.4/go.mod h1:/XxbfmMg8lxefKM7IXC3fBNl/7bRcc72aCRzEWrmP2Q=
+-github.com/google/go-cmp v0.5.9 h1:O2Tfq5qg4qc4AmwVlvv0oLiVAGB7enBSJ2x2DqQFi38=
+-github.com/google/go-cmp v0.5.9/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
++github.com/google/go-cmp v0.6.0 h1:ofyhxvXcZhMsU5ulbFiLKl/XBFqE1GSq7atu8tAmTRI=
++github.com/google/go-cmp v0.6.0/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
+ github.com/google/gofuzz v1.0.0/go.mod h1:dBl0BpW6vV/+mYPU4Po3pmUjxk6FQPldtuIdl/M65Eg=
+ github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
+ github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
+@@ -151,8 +151,6 @@ golang.org/x/arch v0.8.0 h1:3wRIsP3pM4yUptoR96otTUOXI367OS0+c9eeRi9doIc=
+ golang.org/x/arch v0.8.0/go.mod h1:FEVrYAQjsQXMVJ1nsMoVVXPZg6p2JE2mx8psSWTDQys=
+ golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
+ golang.org/x/crypto v0.0.0-20210921155107-089bfa567519/go.mod h1:GvvjBRRGRdwPK5ydBHafDWAxML/pGHZbMvKqRZ5+Abc=
+-golang.org/x/crypto v0.23.0 h1:dIJU/v2J8Mdglj/8rJ6UUOM3Zc9zLZxVZwwxMooUSAI=
+-golang.org/x/crypto v0.23.0/go.mod h1:CKFgDieR+mRhux2Lsu27y0fO304Db0wZe70UKqHu0v8=
+ golang.org/x/crypto v0.26.0 h1:RrRspgV4mU+YwB4FYnuBoKsUapNIL5cohGAmSH3azsw=
+ golang.org/x/crypto v0.26.0/go.mod h1:GY7jblb9wI+FOo5y8/S2oY4zWP07AkOJ4+jxCqdqn54=
+ golang.org/x/exp v0.0.0-20230905200255-921286631fa9 h1:GoHiUyI/Tp2nVkLI2mCxVkOjsbSXD66ic0XW0js0R9g=
+@@ -165,8 +163,6 @@ golang.org/x/net v0.25.0 h1:d/OCCoBEUq33pjydKrGQhw7IlUPI2Oylr+8qLx49kac=
+ golang.org/x/net v0.25.0/go.mod h1:JkAGAh7GEvH74S6FOH42FLoXpXbE/aqXSrIQjXgsiwM=
+ golang.org/x/sync v0.0.0-20190423024810-112230192c58/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
+ golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
+-golang.org/x/sync v0.6.0 h1:5BMeUDZ7vkXGfEr1x9B4bRcTH4lpkTkpdh0T/J+qjbQ=
+-golang.org/x/sync v0.6.0/go.mod h1:Czt+wKu1gCyEFDUtn0jG5QVvpJ6rzVqr5aXyt9drQfk=
+ golang.org/x/sync v0.8.0 h1:3NFvSEYkUoMifnESzZl15y791HH1qU2xm6eCJU5ZPXQ=
+ golang.org/x/sync v0.8.0/go.mod h1:Czt+wKu1gCyEFDUtn0jG5QVvpJ6rzVqr5aXyt9drQfk=
+ golang.org/x/sys v0.0.0-20190215142949-d0b11bdaac8a/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
+@@ -176,8 +172,6 @@ golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a/go.mod h1:oPkhp1MJrh7nUepCBc
+ golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.5.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.6.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+-golang.org/x/sys v0.20.0 h1:Od9JTbYCk261bKm4M/mw7AklTlFYIa0bIp9BgSm1S8Y=
+-golang.org/x/sys v0.20.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
+ golang.org/x/sys v0.23.0 h1:YfKFowiIMvtgl1UERQoTPPToxltDeZfbj4H7dVUCwmM=
+ golang.org/x/sys v0.23.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
+ golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1/go.mod h1:bj7SfCRtBDWHUb9snDiAeCFNEtKQo2Wmx5Cou7ajbmo=
+@@ -186,8 +180,6 @@ golang.org/x/text v0.3.0/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
+ golang.org/x/text v0.3.3/go.mod h1:5Zoc/QRtKVWzQhOtBMvqHzDpF6irO9z98xDceosuGiQ=
+ golang.org/x/text v0.3.7/go.mod h1:u+2+/6zg+i71rQMx5EYifcz6MCKuco9NR6JIITiCfzQ=
+ golang.org/x/text v0.3.8/go.mod h1:E6s5w1FMmriuDzIBO73fBruAKo1PCIq6d2Q6DHfQ8WQ=
+-golang.org/x/text v0.15.0 h1:h1V/4gjBv8v9cjcR6+AR5+/cIYK5N/WAgiv4xlsEtAk=
+-golang.org/x/text v0.15.0/go.mod h1:18ZOQIKpY8NJVqYksKHtTdi31H5itFRjB5/qKTNYzSU=
+ golang.org/x/text v0.17.0 h1:XtiM5bkSOt+ewxlOE/aE/AKEHibwj/6gvWMl9Rsh0Qc=
+ golang.org/x/text v0.17.0/go.mod h1:BuEKDfySbSR4drPmRPG/7iBdf8hvFMuRexcpahXilzY=
+ golang.org/x/tools v0.0.0-20180917221912-90fa682c2a6e/go.mod h1:n7NCudcB/nEzxVGmLbDWY5pfWTLqBcC2KZ6jyYvM4mQ=
+diff --git a/internal/model/oauth.go b/internal/model/oauth.go
+index 01958b8..e51ac1a 100644
+--- a/internal/model/oauth.go
++++ b/internal/model/oauth.go
+@@ -6,6 +6,7 @@ import (
+ 	"encoding/base64"
+ 	"math/rand"
+ 
++	"github.com/golang-jwt/jwt/v5"
+ 	"github.com/google/uuid"
+ 	"github.com/lib/pq"
+ 	"gorm.io/gorm"
+@@ -36,7 +37,9 @@ const (
+ type ResponseType string
+ 
+ const (
+-	CodeResponse ResponseType = "code"
++	CodeResponse        ResponseType = "code"
++	IDTokenResponse     ResponseType = "id_token"
++	CodeIDTokenResponse ResponseType = "code id_token"
+ )
+ 
+ // OAuthClient OAuth客户端
+@@ -141,11 +144,21 @@ type ClientSecretResponse struct {
+ 
+ // AuthorizationRequest OAuth授权请求
+ type AuthorizationRequest struct {
+-	ResponseType ResponseType `json:"response_type" form:"response_type" binding:"required,oneof=code"` // 响应类型
+-	ClientID     string       `json:"client_id" form:"client_id" binding:"required"`                    // 客户端ID
+-	RedirectURI  string       `json:"redirect_uri" form:"redirect_uri" binding:"required,url"`          // 重定向URI
+-	Scope        string       `json:"scope" form:"scope" binding:"required"`                            // 申请的权限范围
+-	State        string       `json:"state" form:"state" binding:"required"`                            // 状态参数
++	ResponseType ResponseType `json:"response_type" form:"response_type" binding:"required,oneof=code 'id_token' 'code id_token'"` // 响应类型
++	ClientID     string       `json:"client_id" form:"client_id" binding:"required"`                                               // 客户端ID
++	RedirectURI  string       `json:"redirect_uri" form:"redirect_uri" binding:"required,url"`                                     // 重定向URI
++	Scope        string       `json:"scope" form:"scope" binding:"required"`                                                       // 申请的权限范围
++	State        string       `json:"state" form:"state" binding:"required"`                                                       // 状态参数
++
++	// OIDC特定参数
++	Nonce       string `json:"nonce" form:"nonce"`                 // OIDC nonce参数
++	Display     string `json:"display" form:"display"`             // 显示类型(page, popup, touch, wap)
++	Prompt      string `json:"prompt" form:"prompt"`               // 提示类型(none, login, consent, select_account)
++	MaxAge      int    `json:"max_age" form:"max_age"`             // 最大认证时间(秒)
++	UILocales   string `json:"ui_locales" form:"ui_locales"`       // UI语言偏好
++	IDTokenHint string `json:"id_token_hint" form:"id_token_hint"` // 之前颁发的ID Token
++	LoginHint   string `json:"login_hint" form:"login_hint"`       // 登录提示
++	ACRValues   string `json:"acr_values" form:"acr_values"`       // 请求的认证上下文类型
+ }
+ 
+ // AuthorizationCode OAuth授权码
+@@ -189,6 +202,21 @@ type TokenRequest struct {
+ 	ClientID     string `form:"client_id" binding:"required"`
+ 	ClientSecret string `form:"client_secret" binding:"required"`
+ 	RefreshToken string `form:"refresh_token"`
++
++	// OIDC特定参数
++	Nonce string `form:"nonce"` // OIDC nonce参数
++}
++
++// TokenResponse OAuth令牌响应
++type TokenResponse struct {
++	AccessToken  string `json:"access_token"`            // 访问令牌
++	TokenType    string `json:"token_type"`              // 令牌类型
++	ExpiresIn    int64  `json:"expires_in"`              // 过期时间(秒)
++	RefreshToken string `json:"refresh_token,omitempty"` // 刷新令牌
++	Scope        string `json:"scope,omitempty"`         // 权限范围
++
++	// OIDC特定响应
++	IDToken string `json:"id_token,omitempty"` // ID令牌(仅在scope包含openid时返回)
+ }
+ 
+ // TokenError OAuth令牌错误响应
+@@ -211,3 +239,120 @@ const (
+ 	ErrorUnsupportedGrantType = "unsupported_grant_type"
+ 	ErrorInvalidScope         = "invalid_scope"
+ )
++
++// OIDC相关常量
++const (
++	// OIDC标准scope
++	ScopeOpenID  = "openid"
++	ScopeProfile = "profile"
++	ScopeEmail   = "email"
++	ScopePhone   = "phone"
++	ScopeAddress = "address"
++
++	// OIDC标准响应类型
++	ResponseTypeIDToken     = "id_token"
++	ResponseTypeIDTokenCode = "code id_token"
++)
++
++// OIDCClaims OpenID Connect标准Claims
++type OIDCClaims struct {
++	// 必需Claims
++	Issuer    string `json:"iss"`
++	Subject   string `json:"sub"`
++	Audience  string `json:"aud"`
++	ExpiresAt int64  `json:"exp"`
++	IssuedAt  int64  `json:"iat"`
++
++	// 认证相关Claims
++	AuthTime int64  `json:"auth_time,omitempty"`
++	Nonce    string `json:"nonce,omitempty"`
++	ACR      string `json:"acr,omitempty"`
++	AMR      string `json:"amr,omitempty"`
++	AZP      string `json:"azp,omitempty"`
++
++	// 用户信息Claims
++	Name              string `json:"name,omitempty"`
++	GivenName         string `json:"given_name,omitempty"`
++	FamilyName        string `json:"family_name,omitempty"`
++	MiddleName        string `json:"middle_name,omitempty"`
++	Nickname          string `json:"nickname,omitempty"`
++	PreferredUsername string `json:"preferred_username,omitempty"`
++	Profile           string `json:"profile,omitempty"`
++	Picture           string `json:"picture,omitempty"`
++	Website           string `json:"website,omitempty"`
++	Gender            string `json:"gender,omitempty"`
++	Birthdate         string `json:"birthdate,omitempty"`
++	Zoneinfo          string `json:"zoneinfo,omitempty"`
++	Locale            string `json:"locale,omitempty"`
++	UpdatedAt         int64  `json:"updated_at,omitempty"`
++
++	// 联系信息Claims
++	Email         string `json:"email,omitempty"`
++	EmailVerified bool   `json:"email_verified,omitempty"`
++	PhoneNumber   string `json:"phone_number,omitempty"`
++	PhoneVerified bool   `json:"phone_verified,omitempty"`
++
++	// 地址Claims
++	Address *OIDCAddress `json:"address,omitempty"`
++}
++
++// GetExpirationTime 实现jwt.Claims接口
++func (c OIDCClaims) GetExpirationTime() (*jwt.NumericDate, error) {
++	if c.ExpiresAt == 0 {
++		return nil, nil
++	}
++	return jwt.NewNumericDate(time.Unix(c.ExpiresAt, 0)), nil
++}
++
++// GetIssuedAt 实现jwt.Claims接口
++func (c OIDCClaims) GetIssuedAt() (*jwt.NumericDate, error) {
++	if c.IssuedAt == 0 {
++		return nil, nil
++	}
++	return jwt.NewNumericDate(time.Unix(c.IssuedAt, 0)), nil
++}
++
++// GetNotBefore 实现jwt.Claims接口
++func (c OIDCClaims) GetNotBefore() (*jwt.NumericDate, error) {
++	return nil, nil
++}
++
++// GetAudience 实现jwt.Claims接口
++func (c OIDCClaims) GetAudience() (jwt.ClaimStrings, error) {
++	return jwt.ClaimStrings{c.Audience}, nil
++}
++
++// GetIssuer 实现jwt.Claims接口
++func (c OIDCClaims) GetIssuer() (string, error) {
++	return c.Issuer, nil
++}
++
++// GetSubject 实现jwt.Claims接口
++func (c OIDCClaims) GetSubject() (string, error) {
++	return c.Subject, nil
++}
++
++// OIDCAddress OpenID Connect地址Claims
++type OIDCAddress struct {
++	Formatted     string `json:"formatted,omitempty"`
++	StreetAddress string `json:"street_address,omitempty"`
++	Locality      string `json:"locality,omitempty"`
++	Region        string `json:"region,omitempty"`
++	PostalCode    string `json:"postal_code,omitempty"`
++	Country       string `json:"country,omitempty"`
++}
++
++// OIDCConfiguration OpenID Connect服务发现配置
++type OIDCConfiguration struct {
++	Issuer                           string   `json:"issuer"`
++	AuthorizationEndpoint            string   `json:"authorization_endpoint"`
++	TokenEndpoint                    string   `json:"token_endpoint"`
++	UserInfoEndpoint                 string   `json:"userinfo_endpoint"`
++	JWKSUri                          string   `json:"jwks_uri"`
++	RegistrationEndpoint             string   `json:"registration_endpoint,omitempty"`
++	ScopesSupported                  []string `json:"scopes_supported"`
++	ResponseTypesSupported           []string `json:"response_types_supported"`
++	SubjectTypesSupported            []string `json:"subject_types_supported"`
++	IDTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
++	ClaimsSupported                  []string `json:"claims_supported"`
++}
+diff --git a/internal/model/token.go b/internal/model/token.go
+index 106adc8..82c1f18 100644
+--- a/internal/model/token.go
++++ b/internal/model/token.go
+@@ -17,6 +17,7 @@ type TokenClaims struct {
+ 	Username  string    `json:"username"`
+ 	Type      TokenType `json:"type"`
+ 	ExpiresAt time.Time `json:"expires_at"`
++	Scope     string    `json:"scope,omitempty"`
+ }
+ 
+ // GetExpiresAt 获取过期时间
+@@ -32,15 +33,6 @@ type TokenPair struct {
+ 	RefreshTokenExpireIn time.Duration `json:"refresh_token_expire_in"`
+ }
+ 
+-// TokenResponse 令牌响应
+-type TokenResponse struct {
+-	AccessToken  string `json:"access_token"`
+-	TokenType    string `json:"token_type"`
+-	RefreshToken string `json:"refresh_token,omitempty"`
+-	ExpiresIn    int64  `json:"expires_in"` // 访问令牌过期时间（秒）
+-	Scope        string `json:"scope,omitempty"`
+-}
+-
+ // TokenUserInfo Token中包含的用户信息（快速接口使用）
+ type TokenUserInfo struct {
+ 	UserID   string `json:"user_id"`
+diff --git a/internal/model/user.go b/internal/model/user.go
+index b651c7a..5115ad9 100644
+--- a/internal/model/user.go
++++ b/internal/model/user.go
+@@ -17,20 +17,30 @@ const (
+ 	UserStatusEnabled                    // 启用
+ )
+ 
+-// User 用户实体
++// User 用户模型
+ type User struct {
+-	ID        string     `gorm:"type:uuid;primary_key" json:"id"`
+-	AppID     string     `gorm:"type:uuid;not null" json:"app_id"`                                                   // 关联的应用ID
+-	Username  string     `gorm:"type:varchar(100);not null;uniqueIndex:idx_app_username,priority:2" json:"username"` // 用户名，在应用内唯一
+-	Password  string     `gorm:"type:varchar(100);not null" json:"-"`                                                // 密码，json中隐藏
+-	Nickname  string     `gorm:"type:varchar(100)" json:"nickname"`                                                  // 昵称
+-	Email     string     `gorm:"type:varchar(100)" json:"email"`                                                     // 邮箱
+-	Phone     string     `gorm:"type:varchar(20)" json:"phone"`                                                      // 手机号
+-	Status    UserStatus `gorm:"type:int;default:1" json:"status"`                                                   // 状态
+-	App       *App       `gorm:"foreignKey:AppID" json:"-"`                                                          // 关联的应用
++	ID        string     `json:"id" gorm:"primaryKey;type:uuid"`
++	AppID     string     `json:"app_id" gorm:"index;type:uuid"`
++	Username  string     `json:"username" gorm:"type:varchar(100);uniqueIndex:idx_app_username,priority:2"`
++	Password  string     `json:"-" gorm:"type:varchar(100)"`
++	Status    UserStatus `json:"status" gorm:"type:int;default:1"`
+ 	CreatedAt time.Time  `json:"created_at"`
+ 	UpdatedAt time.Time  `json:"updated_at"`
+ 
++	// OIDC相关字段
++	Name          string `json:"name" gorm:"type:varchar(100)"`
++	Nickname      string `json:"nickname" gorm:"type:varchar(100)"`
++	Email         string `json:"email" gorm:"type:varchar(100)"`
++	EmailVerified bool   `json:"email_verified" gorm:"default:false"`
++	Phone         string `json:"phone" gorm:"type:varchar(20)"`
++	PhoneVerified bool   `json:"phone_verified" gorm:"default:false"`
++	Picture       string `json:"picture" gorm:"type:varchar(500)"`
++	Locale        string `json:"locale" gorm:"type:varchar(10)"`
++	Birthdate     string `json:"birthdate" gorm:"type:varchar(10)"`
++	Gender        string `json:"gender" gorm:"type:varchar(10)"`
++	Website       string `json:"website" gorm:"type:varchar(200)"`
++	Zoneinfo      string `json:"zoneinfo" gorm:"type:varchar(50)"`
++
+ 	// 角色关联
+ 	Roles []Role `gorm:"many2many:user_roles;" json:"roles,omitempty"`
+ }
+diff --git a/internal/service/auth.go b/internal/service/auth.go
+index 4e74d75..ff2ac93 100644
+--- a/internal/service/auth.go
++++ b/internal/service/auth.go
+@@ -80,7 +80,7 @@ func (s *authService) Login(ctx context.Context, appID string, req *model.LoginR
+ 	}
+ 
+ 	// 生成令牌对
+-	tokenPair, err := s.tokenService.GenerateTokenPair(ctx, user)
++	tokenPair, err := s.tokenService.GenerateTokenPair(ctx, user, "read write openid profile email phone")
+ 	if err != nil {
+ 		return nil, err
+ 	}
+diff --git a/internal/service/authorization.go b/internal/service/authorization.go
+index 93151dd..d825dc6 100644
+--- a/internal/service/authorization.go
++++ b/internal/service/authorization.go
+@@ -25,7 +25,9 @@ type authorizationService struct {
+ 	clientRepo   repository.OAuthClientRepository
+ 	secretRepo   repository.OAuthClientSecretRepository
+ 	codeRepo     repository.AuthorizationCodeRepository
++	userRepo     repository.UserRepository
+ 	tokenService TokenService
++	oidcService  OIDCService
+ }
+ 
+ // NewAuthorizationService 创建授权服务实例
+@@ -33,13 +35,17 @@ func NewAuthorizationService(
+ 	clientRepo repository.OAuthClientRepository,
+ 	secretRepo repository.OAuthClientSecretRepository,
+ 	codeRepo repository.AuthorizationCodeRepository,
++	userRepo repository.UserRepository,
+ 	tokenService TokenService,
++	oidcService OIDCService,
+ ) AuthorizationService {
+ 	return &authorizationService{
+ 		clientRepo:   clientRepo,
+ 		secretRepo:   secretRepo,
+ 		codeRepo:     codeRepo,
++		userRepo:     userRepo,
+ 		tokenService: tokenService,
++		oidcService:  oidcService,
+ 	}
+ }
+ 
+@@ -105,6 +111,25 @@ func (s *authorizationService) Authorize(ctx context.Context, userID string, req
+ 	if req.State != "" {
+ 		query.Set("state", req.State)
+ 	}
++
++	// 如果响应类型包含 id_token，生成并返回 ID Token
++	if req.ResponseType == model.CodeIDTokenResponse {
++		// 获取用户信息
++		user, err := s.userRepo.GetByID(ctx, userID)
++		if err != nil {
++			log.Printf("Failed to get user info: %v", err)
++			return "", fmt.Errorf("failed to get user info: %w", err)
++		}
++
++		// 生成 ID Token
++		idToken, err := s.oidcService.GenerateIDToken(ctx, user, client, req.Nonce)
++		if err != nil {
++			log.Printf("Failed to generate ID token: %v", err)
++			return "", fmt.Errorf("failed to generate ID token: %w", err)
++		}
++		query.Set("id_token", idToken)
++	}
++
+ 	redirectURL.RawQuery = query.Encode()
+ 
+ 	finalURL := redirectURL.String()
+@@ -267,7 +292,7 @@ func (s *authorizationService) handleAuthorizationCodeGrant(ctx context.Context,
+ 		ID:    authCode.UserID,
+ 		AppID: client.AppID,
+ 	}
+-	tokenPair, err := s.tokenService.GenerateTokenPair(ctx, user)
++	tokenPair, err := s.tokenService.GenerateTokenPair(ctx, user, authCode.Scope)
+ 	if err != nil {
+ 		log.Printf("Failed to generate token pair: %v", err)
+ 		return nil, fmt.Errorf("failed to generate token pair: %w", err)
+@@ -278,13 +303,36 @@ func (s *authorizationService) handleAuthorizationCodeGrant(ctx context.Context,
+ 		log.Printf("Failed to delete authorization code: %v", err)
+ 	}
+ 
+-	return &model.TokenResponse{
++	response := &model.TokenResponse{
+ 		AccessToken:  tokenPair.AccessToken,
+ 		TokenType:    "Bearer",
+ 		ExpiresIn:    int64(tokenPair.AccessTokenExpireIn.Seconds()),
+ 		RefreshToken: tokenPair.RefreshToken,
+ 		Scope:        authCode.Scope,
+-	}, nil
++	}
++
++	// 如果scope包含openid，生成ID Token
++	scopes := strings.Split(authCode.Scope, " ")
++	for _, scope := range scopes {
++		if scope == model.ScopeOpenID {
++			// 获取完整的用户信息
++			user, err = s.userRepo.GetByID(ctx, authCode.UserID)
++			if err != nil {
++				log.Printf("Failed to get user info: %v", err)
++				return nil, fmt.Errorf("failed to get user info: %w", err)
++			}
++
++			idToken, err := s.oidcService.GenerateIDToken(ctx, user, client, req.Nonce)
++			if err != nil {
++				log.Printf("Failed to generate ID token: %v", err)
++				return nil, fmt.Errorf("failed to generate ID token: %w", err)
++			}
++			response.IDToken = idToken
++			break
++		}
++	}
++
++	return response, nil
+ }
+ 
+ // handleRefreshTokenGrant 处理刷新令牌授权类型
+diff --git a/internal/service/oauth_client.go b/internal/service/oauth_client.go
+index 9c43d4f..6b2c492 100644
+--- a/internal/service/oauth_client.go
++++ b/internal/service/oauth_client.go
+@@ -278,11 +278,10 @@ func (s *oauthClientService) CreateClientSecret(ctx context.Context, clientID st
+ 	}
+ 
+ 	// 生成秘钥
+-	secretBytes := make([]byte, 32)
+-	if _, err := rand.Read(secretBytes); err != nil {
++	_, secret, err := generateClientCredentials()
++	if err != nil {
+ 		return nil, err
+ 	}
+-	secret := base64.URLEncoding.EncodeToString(secretBytes)
+ 
+ 	// 创建秘钥记录
+ 	now := time.Now()
+diff --git a/internal/service/token.go b/internal/service/token.go
+index ba55558..7e07591 100644
+--- a/internal/service/token.go
++++ b/internal/service/token.go
+@@ -21,7 +21,7 @@ var (
+ // TokenService Token服务接口
+ type TokenService interface {
+ 	// GenerateTokenPair 生成访问令牌和刷新令牌对
+-	GenerateTokenPair(ctx context.Context, user *model.User) (*model.TokenPair, error)
++	GenerateTokenPair(ctx context.Context, user *model.User, scope string) (*model.TokenPair, error)
+ 
+ 	// ValidateToken 验证令牌
+ 	ValidateToken(ctx context.Context, tokenString string, tokenType model.TokenType) (*model.TokenClaims, error)
+@@ -63,19 +63,21 @@ func (s *tokenService) generateToken(claims *model.TokenClaims, expiry time.Dura
+ 		"type":       claims.Type,
+ 		"exp":        expiresAt.Unix(),
+ 		"expires_at": expiresAt,
++		"scope":      claims.Scope,
+ 	})
+ 
+ 	return token.SignedString(s.jwtSecret)
+ }
+ 
+ // GenerateTokenPair 生成访问令牌和刷新令牌对
+-func (s *tokenService) GenerateTokenPair(ctx context.Context, user *model.User) (*model.TokenPair, error) {
++func (s *tokenService) GenerateTokenPair(ctx context.Context, user *model.User, scope string) (*model.TokenPair, error) {
+ 	// 生成访问令牌
+ 	accessClaims := &model.TokenClaims{
+ 		UserID:   user.ID,
+ 		AppID:    user.AppID,
+ 		Username: user.Username,
+ 		Type:     model.AccessToken,
++		Scope:    scope,
+ 	}
+ 	accessToken, err := s.generateToken(accessClaims, s.accessExpiry)
+ 	if err != nil {
+@@ -88,6 +90,7 @@ func (s *tokenService) GenerateTokenPair(ctx context.Context, user *model.User)
+ 		AppID:    user.AppID,
+ 		Username: user.Username,
+ 		Type:     model.RefreshToken,
++		Scope:    scope,
+ 	}
+ 	refreshToken, err := s.generateToken(refreshClaims, s.refreshExpiry)
+ 	if err != nil {
+@@ -155,12 +158,16 @@ func (s *tokenService) ValidateToken(ctx context.Context, tokenString string, to
+ 		return nil, ErrTokenExpired
+ 	}
+ 
++	// 获取 scope 字段
++	scope, _ := claims["scope"].(string)
++
+ 	return &model.TokenClaims{
+ 		UserID:    claims["user_id"].(string),
+ 		AppID:     claims["app_id"].(string),
+ 		Username:  claims["username"].(string),
+ 		Type:      model.TokenType(claims["type"].(string)),
+ 		ExpiresAt: expiresAt,
++		Scope:     scope,
+ 	}, nil
+ }
+ 
+@@ -188,7 +195,7 @@ func (s *tokenService) RefreshToken(ctx context.Context, refreshToken string) (*
+ 		AppID:    claims.AppID,
+ 		Username: claims.Username,
+ 	}
+-	return s.GenerateTokenPair(ctx, user)
++	return s.GenerateTokenPair(ctx, user, claims.Scope)
+ }
+ 
+ // RevokeToken 吊销令牌
+diff --git a/main.go b/main.go
+index 0dbbd6d..5571b04 100644
+--- a/main.go
++++ b/main.go
+@@ -10,6 +10,7 @@ import (
+ 	"lauth/internal/repository"
+ 	"lauth/internal/service"
+ 	"lauth/pkg/config"
++	"lauth/pkg/crypto"
+ 	"lauth/pkg/database"
+ 	"lauth/pkg/engine"
+ 	"lauth/pkg/middleware"
+@@ -124,7 +125,23 @@ func main() {
+ 	roleService := service.NewRoleService(roleRepo, permissionRepo)
+ 	permissionService := service.NewPermissionService(permissionRepo, roleRepo)
+ 	oauthClientService := service.NewOAuthClientService(oauthClientRepo, oauthClientSecretRepo)
+-	authorizationService := service.NewAuthorizationService(oauthClientRepo, oauthClientSecretRepo, authCodeRepo, tokenService)
++
++	// 初始化OIDC服务
++	privateKey, publicKey, err := crypto.LoadRSAKeys(cfg.OIDC.PrivateKeyPath, cfg.OIDC.PublicKeyPath)
++	if err != nil {
++		log.Fatalf("Failed to load RSA keys: %v", err)
++	}
++	oidcService := service.NewOIDCService(userRepo, tokenService, cfg, privateKey, publicKey)
++
++	// 初始化授权服务
++	authorizationService := service.NewAuthorizationService(
++		oauthClientRepo,
++		oauthClientSecretRepo,
++		authCodeRepo,
++		userRepo,
++		tokenService,
++		oidcService,
++	)
+ 
+ 	// 创建默认的gin引擎
+ 	r := gin.Default()
+@@ -146,6 +163,7 @@ func main() {
+ 	authorizationHandler := v1.NewAuthorizationHandler(authorizationService)
+ 	profileHandler := v1.NewProfileHandler(profileService)
+ 	fileHandler := v1.NewFileHandler(fileService)
++	oidcHandler := v1.NewOIDCHandler(oidcService, tokenService)
+ 
+ 	// 初始化路由管理器
+ 	router := router.NewRouter(
+@@ -161,6 +179,7 @@ func main() {
+ 		authorizationHandler,
+ 		profileHandler,
+ 		fileHandler,
++		oidcHandler,
+ 	)
+ 
+ 	// 注册所有路由
+diff --git a/pkg/config/config.go b/pkg/config/config.go
+index f8210f0..cb85240 100644
+--- a/pkg/config/config.go
++++ b/pkg/config/config.go
+@@ -10,11 +10,12 @@ import (
+ 
+ // Config 应用配置结构
+ type Config struct {
+-	Server   ServerConfig
+-	Database database.Config
+-	MongoDB  MongoDBConfig
+-	Redis    RedisConfig
+-	JWT      JWTConfig
++	Server   ServerConfig    `yaml:"server"`
++	Database database.Config `yaml:"database"`
++	MongoDB  MongoDBConfig   `yaml:"mongodb"`
++	Redis    RedisConfig     `yaml:"redis"`
++	JWT      JWTConfig       `yaml:"jwt"`
++	OIDC     OIDCConfig      `yaml:"oidc"`
+ }
+ 
+ // ServerConfig 服务器配置
+@@ -47,6 +48,13 @@ type JWTConfig struct {
+ 	RefreshTokenExpire int `mapstructure:"refresh_token_expire"`
+ }
+ 
++// OIDCConfig OIDC配置
++type OIDCConfig struct {
++	Issuer         string `mapstructure:"issuer"`           // OIDC颁发者标识符
++	PrivateKeyPath string `mapstructure:"private_key_path"` // RSA私钥路径
++	PublicKeyPath  string `mapstructure:"public_key_path"`  // RSA公钥路径
++}
++
+ // LoadConfig 加载配置文件
+ func LoadConfig(configPath string) (*Config, error) {
+ 	viper.SetConfigFile(configPath)
+diff --git a/pkg/router/router.go b/pkg/router/router.go
+index 21534b5..46ddbad 100644
+--- a/pkg/router/router.go
++++ b/pkg/router/router.go
+@@ -22,6 +22,7 @@ type Router struct {
+ 	authzHandler       *v1.AuthorizationHandler
+ 	profileHandler     *v1.ProfileHandler
+ 	fileHandler        *v1.FileHandler
++	oidcHandler        *v1.OIDCHandler
+ }
+ 
+ // NewRouter 创建路由管理器实例
+@@ -38,6 +39,7 @@ func NewRouter(
+ 	authzHandler *v1.AuthorizationHandler,
+ 	profileHandler *v1.ProfileHandler,
+ 	fileHandler *v1.FileHandler,
++	oidcHandler *v1.OIDCHandler,
+ ) *Router {
+ 	return &Router{
+ 		engine:             engine,
+@@ -52,6 +54,7 @@ func NewRouter(
+ 		authzHandler:       authzHandler,
+ 		profileHandler:     profileHandler,
+ 		fileHandler:        fileHandler,
++		oidcHandler:        oidcHandler,
+ 	}
+ }
+ 
+@@ -85,7 +88,13 @@ func (r *Router) RegisterRoutes() {
+ 		r.registerProfileRoutes(api)
+ 		// 注册文件相关路由
+ 		r.registerFileRoutes(api)
++		// 注册OIDC相关路由
++		r.registerOIDCRoutes(api)
+ 	}
++
++	// OIDC发现端点（必须在根路径）
++	r.engine.GET("/.well-known/openid-configuration", r.oidcHandler.GetConfiguration)
++	r.engine.GET("/.well-known/jwks.json", r.oidcHandler.GetJWKS)
+ }
+ 
+ // registerAuthRoutes 注册认证相关路由
+@@ -168,3 +177,8 @@ func (r *Router) registerProfileRoutes(group *gin.RouterGroup) {
+ func (r *Router) registerFileRoutes(group *gin.RouterGroup) {
+ 	r.fileHandler.Register(group, r.authMiddleware)
+ }
++
++// registerOIDCRoutes 注册OIDC相关路由
++func (r *Router) registerOIDCRoutes(group *gin.RouterGroup) {
++	r.oidcHandler.Register(group, r.authMiddleware)
++}

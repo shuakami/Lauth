@@ -10,11 +10,12 @@ import (
 
 // Config 应用配置结构
 type Config struct {
-	Server   ServerConfig
-	Database database.Config
-	MongoDB  MongoDBConfig
-	Redis    RedisConfig
-	JWT      JWTConfig
+	Server   ServerConfig    `yaml:"server"`
+	Database database.Config `yaml:"database"`
+	MongoDB  MongoDBConfig   `yaml:"mongodb"`
+	Redis    RedisConfig     `yaml:"redis"`
+	JWT      JWTConfig       `yaml:"jwt"`
+	OIDC     OIDCConfig      `yaml:"oidc"`
 }
 
 // ServerConfig 服务器配置
@@ -45,6 +46,13 @@ type JWTConfig struct {
 	Secret             string
 	AccessTokenExpire  int `mapstructure:"access_token_expire"`
 	RefreshTokenExpire int `mapstructure:"refresh_token_expire"`
+}
+
+// OIDCConfig OIDC配置
+type OIDCConfig struct {
+	Issuer         string `mapstructure:"issuer"`           // OIDC颁发者标识符
+	PrivateKeyPath string `mapstructure:"private_key_path"` // RSA私钥路径
+	PublicKeyPath  string `mapstructure:"public_key_path"`  // RSA公钥路径
 }
 
 // LoadConfig 加载配置文件

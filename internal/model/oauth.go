@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"math/rand"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"gorm.io/gorm"
@@ -36,7 +37,9 @@ const (
 type ResponseType string
 
 const (
-	CodeResponse ResponseType = "code"
+	CodeResponse        ResponseType = "code"
+	IDTokenResponse     ResponseType = "id_token"
+	CodeIDTokenResponse ResponseType = "code id_token"
 )
 
 // OAuthClient OAuth客户端
@@ -141,11 +144,21 @@ type ClientSecretResponse struct {
 
 // AuthorizationRequest OAuth授权请求
 type AuthorizationRequest struct {
-	ResponseType ResponseType `json:"response_type" form:"response_type" binding:"required,oneof=code"` // 响应类型
-	ClientID     string       `json:"client_id" form:"client_id" binding:"required"`                    // 客户端ID
-	RedirectURI  string       `json:"redirect_uri" form:"redirect_uri" binding:"required,url"`          // 重定向URI
-	Scope        string       `json:"scope" form:"scope" binding:"required"`                            // 申请的权限范围
-	State        string       `json:"state" form:"state" binding:"required"`                            // 状态参数
+	ResponseType ResponseType `json:"response_type" form:"response_type" binding:"required,oneof=code 'id_token' 'code id_token'"` // 响应类型
+	ClientID     string       `json:"client_id" form:"client_id" binding:"required"`                                               // 客户端ID
+	RedirectURI  string       `json:"redirect_uri" form:"redirect_uri" binding:"required,url"`                                     // 重定向URI
+	Scope        string       `json:"scope" form:"scope" binding:"required"`                                                       // 申请的权限范围
+	State        string       `json:"state" form:"state" binding:"required"`                                                       // 状态参数
+
+	// OIDC特定参数
+	Nonce       string `json:"nonce" form:"nonce"`                 // OIDC nonce参数
+	Display     string `json:"display" form:"display"`             // 显示类型(page, popup, touch, wap)
+	Prompt      string `json:"prompt" form:"prompt"`               // 提示类型(none, login, consent, select_account)
+	MaxAge      int    `json:"max_age" form:"max_age"`             // 最大认证时间(秒)
+	UILocales   string `json:"ui_locales" form:"ui_locales"`       // UI语言偏好
+	IDTokenHint string `json:"id_token_hint" form:"id_token_hint"` // 之前颁发的ID Token
+	LoginHint   string `json:"login_hint" form:"login_hint"`       // 登录提示
+	ACRValues   string `json:"acr_values" form:"acr_values"`       // 请求的认证上下文类型
 }
 
 // AuthorizationCode OAuth授权码
@@ -189,6 +202,21 @@ type TokenRequest struct {
 	ClientID     string `form:"client_id" binding:"required"`
 	ClientSecret string `form:"client_secret" binding:"required"`
 	RefreshToken string `form:"refresh_token"`
+
+	// OIDC特定参数
+	Nonce string `form:"nonce"` // OIDC nonce参数
+}
+
+// TokenResponse OAuth令牌响应
+type TokenResponse struct {
+	AccessToken  string `json:"access_token"`            // 访问令牌
+	TokenType    string `json:"token_type"`              // 令牌类型
+	ExpiresIn    int64  `json:"expires_in"`              // 过期时间(秒)
+	RefreshToken string `json:"refresh_token,omitempty"` // 刷新令牌
+	Scope        string `json:"scope,omitempty"`         // 权限范围
+
+	// OIDC特定响应
+	IDToken string `json:"id_token,omitempty"` // ID令牌(仅在scope包含openid时返回)
 }
 
 // TokenError OAuth令牌错误响应
@@ -211,3 +239,120 @@ const (
 	ErrorUnsupportedGrantType = "unsupported_grant_type"
 	ErrorInvalidScope         = "invalid_scope"
 )
+
+// OIDC相关常量
+const (
+	// OIDC标准scope
+	ScopeOpenID  = "openid"
+	ScopeProfile = "profile"
+	ScopeEmail   = "email"
+	ScopePhone   = "phone"
+	ScopeAddress = "address"
+
+	// OIDC标准响应类型
+	ResponseTypeIDToken     = "id_token"
+	ResponseTypeIDTokenCode = "code id_token"
+)
+
+// OIDCClaims OpenID Connect标准Claims
+type OIDCClaims struct {
+	// 必需Claims
+	Issuer    string `json:"iss"`
+	Subject   string `json:"sub"`
+	Audience  string `json:"aud"`
+	ExpiresAt int64  `json:"exp"`
+	IssuedAt  int64  `json:"iat"`
+
+	// 认证相关Claims
+	AuthTime int64  `json:"auth_time,omitempty"`
+	Nonce    string `json:"nonce,omitempty"`
+	ACR      string `json:"acr,omitempty"`
+	AMR      string `json:"amr,omitempty"`
+	AZP      string `json:"azp,omitempty"`
+
+	// 用户信息Claims
+	Name              string `json:"name,omitempty"`
+	GivenName         string `json:"given_name,omitempty"`
+	FamilyName        string `json:"family_name,omitempty"`
+	MiddleName        string `json:"middle_name,omitempty"`
+	Nickname          string `json:"nickname,omitempty"`
+	PreferredUsername string `json:"preferred_username,omitempty"`
+	Profile           string `json:"profile,omitempty"`
+	Picture           string `json:"picture,omitempty"`
+	Website           string `json:"website,omitempty"`
+	Gender            string `json:"gender,omitempty"`
+	Birthdate         string `json:"birthdate,omitempty"`
+	Zoneinfo          string `json:"zoneinfo,omitempty"`
+	Locale            string `json:"locale,omitempty"`
+	UpdatedAt         int64  `json:"updated_at,omitempty"`
+
+	// 联系信息Claims
+	Email         string `json:"email,omitempty"`
+	EmailVerified bool   `json:"email_verified,omitempty"`
+	PhoneNumber   string `json:"phone_number,omitempty"`
+	PhoneVerified bool   `json:"phone_verified,omitempty"`
+
+	// 地址Claims
+	Address *OIDCAddress `json:"address,omitempty"`
+}
+
+// GetExpirationTime 实现jwt.Claims接口
+func (c OIDCClaims) GetExpirationTime() (*jwt.NumericDate, error) {
+	if c.ExpiresAt == 0 {
+		return nil, nil
+	}
+	return jwt.NewNumericDate(time.Unix(c.ExpiresAt, 0)), nil
+}
+
+// GetIssuedAt 实现jwt.Claims接口
+func (c OIDCClaims) GetIssuedAt() (*jwt.NumericDate, error) {
+	if c.IssuedAt == 0 {
+		return nil, nil
+	}
+	return jwt.NewNumericDate(time.Unix(c.IssuedAt, 0)), nil
+}
+
+// GetNotBefore 实现jwt.Claims接口
+func (c OIDCClaims) GetNotBefore() (*jwt.NumericDate, error) {
+	return nil, nil
+}
+
+// GetAudience 实现jwt.Claims接口
+func (c OIDCClaims) GetAudience() (jwt.ClaimStrings, error) {
+	return jwt.ClaimStrings{c.Audience}, nil
+}
+
+// GetIssuer 实现jwt.Claims接口
+func (c OIDCClaims) GetIssuer() (string, error) {
+	return c.Issuer, nil
+}
+
+// GetSubject 实现jwt.Claims接口
+func (c OIDCClaims) GetSubject() (string, error) {
+	return c.Subject, nil
+}
+
+// OIDCAddress OpenID Connect地址Claims
+type OIDCAddress struct {
+	Formatted     string `json:"formatted,omitempty"`
+	StreetAddress string `json:"street_address,omitempty"`
+	Locality      string `json:"locality,omitempty"`
+	Region        string `json:"region,omitempty"`
+	PostalCode    string `json:"postal_code,omitempty"`
+	Country       string `json:"country,omitempty"`
+}
+
+// OIDCConfiguration OpenID Connect服务发现配置
+type OIDCConfiguration struct {
+	Issuer                           string   `json:"issuer"`
+	AuthorizationEndpoint            string   `json:"authorization_endpoint"`
+	TokenEndpoint                    string   `json:"token_endpoint"`
+	UserInfoEndpoint                 string   `json:"userinfo_endpoint"`
+	JWKSUri                          string   `json:"jwks_uri"`
+	RegistrationEndpoint             string   `json:"registration_endpoint,omitempty"`
+	ScopesSupported                  []string `json:"scopes_supported"`
+	ResponseTypesSupported           []string `json:"response_types_supported"`
+	SubjectTypesSupported            []string `json:"subject_types_supported"`
+	IDTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
+	ClaimsSupported                  []string `json:"claims_supported"`
+}

@@ -18,6 +18,11 @@ redis:
   db: 0        # Redis database number
 
 jwt:
-  secret: "your-secret-key-please-change-in-production"  # JWT signing key
-  access_token_expire: 2  # Access token expiration time (hours)
-  refresh_token_expire: 168  # Refresh token expiration time (hours) - 7 days 
+  secret: "your-jwt-secret"
+  access_token_expire: 24  # 访问令牌过期时间(小时)
+  refresh_token_expire: 168 # 刷新令牌过期时间(小时)
+
+oidc:
+  issuer: "http://localhost:8080"
+  private_key_path: "config/keys/oidc.key"
+  public_key_path: "config/keys/oidc.pub" 

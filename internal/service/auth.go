@@ -80,7 +80,7 @@ func (s *authService) Login(ctx context.Context, appID string, req *model.LoginR
 	}
 
 	// 生成令牌对
-	tokenPair, err := s.tokenService.GenerateTokenPair(ctx, user)
+	tokenPair, err := s.tokenService.GenerateTokenPair(ctx, user, "read write openid profile email phone")
 	if err != nil {
 		return nil, err
 	}

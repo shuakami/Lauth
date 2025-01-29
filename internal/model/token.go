@@ -17,6 +17,7 @@ type TokenClaims struct {
 	Username  string    `json:"username"`
 	Type      TokenType `json:"type"`
 	ExpiresAt time.Time `json:"expires_at"`
+	Scope     string    `json:"scope,omitempty"`
 }
 
 // GetExpiresAt 获取过期时间
@@ -30,15 +31,6 @@ type TokenPair struct {
 	RefreshToken         string        `json:"refresh_token"`
 	AccessTokenExpireIn  time.Duration `json:"access_token_expire_in"`
 	RefreshTokenExpireIn time.Duration `json:"refresh_token_expire_in"`
-}
-
-// TokenResponse 令牌响应
-type TokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	TokenType    string `json:"token_type"`
-	RefreshToken string `json:"refresh_token,omitempty"`
-	ExpiresIn    int64  `json:"expires_in"` // 访问令牌过期时间（秒）
-	Scope        string `json:"scope,omitempty"`
 }
 
 // TokenUserInfo Token中包含的用户信息（快速接口使用）

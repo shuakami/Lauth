@@ -278,11 +278,10 @@ func (s *oauthClientService) CreateClientSecret(ctx context.Context, clientID st
 	}
 
 	// 生成秘钥
-	secretBytes := make([]byte, 32)
-	if _, err := rand.Read(secretBytes); err != nil {
+	_, secret, err := generateClientCredentials()
+	if err != nil {
 		return nil, err
 	}
-	secret := base64.URLEncoding.EncodeToString(secretBytes)
 
 	// 创建秘钥记录
 	now := time.Now()
