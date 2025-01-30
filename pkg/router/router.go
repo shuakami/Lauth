@@ -25,6 +25,7 @@ type Router struct {
 	fileHandler               *v1.FileHandler
 	oidcHandler               *v1.OIDCHandler
 	auditHandler              *v1.AuditHandler
+	pluginHandler             *v1.PluginHandler
 	auditPermissionMiddleware *audit.AuditPermissionMiddleware
 }
 
@@ -44,6 +45,7 @@ func NewRouter(
 	fileHandler *v1.FileHandler,
 	oidcHandler *v1.OIDCHandler,
 	auditHandler *v1.AuditHandler,
+	pluginHandler *v1.PluginHandler,
 	auditPermissionMiddleware *audit.AuditPermissionMiddleware,
 ) *Router {
 	return &Router{
@@ -61,6 +63,7 @@ func NewRouter(
 		fileHandler:               fileHandler,
 		oidcHandler:               oidcHandler,
 		auditHandler:              auditHandler,
+		pluginHandler:             pluginHandler,
 		auditPermissionMiddleware: auditPermissionMiddleware,
 	}
 }
@@ -99,6 +102,8 @@ func (r *Router) RegisterRoutes() {
 		r.registerOIDCRoutes(api)
 		// 注册审计相关路由
 		r.registerAuditRoutes(api)
+		// 注册插件相关路由
+		r.registerPluginRoutes(api)
 	}
 
 	// OIDC发现端点（必须在根路径）
@@ -202,5 +207,42 @@ func (r *Router) registerAuditRoutes(group *gin.RouterGroup) {
 		audit.GET("/logs/verify", r.auditHandler.VerifyLogFile)
 		audit.GET("/stats", r.auditHandler.GetStats)
 		audit.GET("/ws", r.auditHandler.HandleWebSocket)
+	}
+}
+
+// registerPluginRoutes 注册插件相关路由
+func (r *Router) registerPluginRoutes(group *gin.RouterGroup) {
+	plugins := group.Group("/apps/:id/plugins")
+	plugins.Use(r.authMiddleware.HandleAuth())
+	{
+		plugins.POST("/load", func(c *gin.Context) {
+			// 参数映射: id -> app_id
+			c.Params = append(c.Params, gin.Param{
+				Key:   "app_id",
+				Value: c.Param("id"),
+			})
+			r.pluginHandler.LoadPlugin(c)
+		})
+		plugins.POST("/unload/:name", func(c *gin.Context) {
+			c.Params = append(c.Params, gin.Param{
+				Key:   "app_id",
+				Value: c.Param("id"),
+			})
+			r.pluginHandler.UnloadPlugin(c)
+		})
+		plugins.POST("/execute/:name", func(c *gin.Context) {
+			c.Params = append(c.Params, gin.Param{
+				Key:   "app_id",
+				Value: c.Param("id"),
+			})
+			r.pluginHandler.ExecutePlugin(c)
+		})
+		plugins.GET("/list", func(c *gin.Context) {
+			c.Params = append(c.Params, gin.Param{
+				Key:   "app_id",
+				Value: c.Param("id"),
+			})
+			r.pluginHandler.ListPlugins(c)
+		})
 	}
 }

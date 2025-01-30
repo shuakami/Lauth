@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
@@ -8,6 +9,7 @@ import (
 	v1 "lauth/api/v1"
 	"lauth/internal/audit"
 	"lauth/internal/model"
+	"lauth/internal/plugin"
 	"lauth/internal/repository"
 	"lauth/internal/service"
 	"lauth/pkg/config"
@@ -64,6 +66,9 @@ func main() {
 		&model.OAuthClient{},
 		&model.OAuthClientSecret{},
 		&model.AuthorizationCode{},
+		&model.PluginStatus{},
+		&model.PluginConfig{},
+		&model.VerificationSession{},
 	); err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
@@ -97,6 +102,9 @@ func main() {
 	oauthClientRepo := repository.NewOAuthClientRepository(db)
 	oauthClientSecretRepo := repository.NewOAuthClientSecretRepository(db)
 	authCodeRepo := repository.NewAuthorizationCodeRepository(db)
+	pluginStatusRepo := repository.NewPluginStatusRepository(db)
+	pluginConfigRepo := repository.NewPluginConfigRepository(db)
+	verificationSessionRepo := repository.NewVerificationSessionRepository(db)
 
 	// 初始化MongoDB仓储层
 	profileRepo := repository.NewProfileRepository(mongodb)
@@ -116,13 +124,22 @@ func main() {
 	ruleCache := engine.NewCache(redisClient)
 	ruleEngine := engine.NewEngine(ruleParser, ruleExecutor, ruleCache, ruleRepo)
 
+	// 初始化插件管理器
+	pluginManager := plugin.NewManager(pluginConfigRepo)
+
+	// 加载插件配置
+	if err := pluginManager.InitPlugins(context.Background()); err != nil {
+		log.Fatalf("Failed to init plugins: %v", err)
+	}
+
 	// 初始化服务层
 	appService := service.NewAppService(appRepo)
 	fileService := service.NewFileService(fileRepo)
 	profileService := service.NewProfileService(profileRepo, fileRepo)
 	userService := service.NewUserService(userRepo, appRepo, profileService)
 	ruleService := service.NewRuleService(ruleRepo, ruleEngine)
-	authService := service.NewAuthService(userRepo, tokenService, ruleService)
+	verificationService := service.NewVerificationService(pluginManager, pluginStatusRepo, verificationSessionRepo)
+	authService := service.NewAuthService(userRepo, tokenService, ruleService, verificationService)
 	roleService := service.NewRoleService(roleRepo, permissionRepo)
 	permissionService := service.NewPermissionService(permissionRepo, roleRepo)
 	oauthClientService := service.NewOAuthClientService(oauthClientRepo, oauthClientSecretRepo)
@@ -195,6 +212,7 @@ func main() {
 	fileHandler := v1.NewFileHandler(fileService)
 	oidcHandler := v1.NewOIDCHandler(oidcService, tokenService)
 	auditHandler := v1.NewAuditHandler(auditReader, wsServer)
+	pluginHandler := v1.NewPluginHandler(pluginManager, verificationService)
 
 	// 初始化路由管理器
 	router := router.NewRouter(
@@ -212,6 +230,7 @@ func main() {
 		fileHandler,
 		oidcHandler,
 		auditHandler,
+		pluginHandler,
 		auditPermissionMiddleware,
 	)
 

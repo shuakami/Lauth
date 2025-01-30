@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 
 	"lauth/internal/model"
 	"lauth/internal/repository"
@@ -14,6 +17,8 @@ import (
 var (
 	// ErrInvalidCredentials 无效的凭证
 	ErrInvalidCredentials = errors.New("invalid credentials")
+	// ErrPluginRequired 需要完成插件验证
+	ErrPluginRequired = errors.New("plugin verification required")
 )
 
 // ValidateTokenAndRuleResponse 组合验证响应
@@ -27,10 +32,10 @@ type ValidateTokenAndRuleResponse struct {
 // AuthService 认证服务接口
 type AuthService interface {
 	// Login 用户登录
-	Login(ctx context.Context, appID string, req *model.LoginRequest) (*model.LoginResponse, error)
+	Login(ctx context.Context, appID string, req *model.LoginRequest) (*model.ExtendedLoginResponse, error)
 
 	// RefreshToken 刷新访问令牌
-	RefreshToken(ctx context.Context, refreshToken string) (*model.LoginResponse, error)
+	RefreshToken(ctx context.Context, refreshToken string) (*model.ExtendedLoginResponse, error)
 
 	// Logout 用户登出
 	Logout(ctx context.Context, accessToken string) error
@@ -44,23 +49,30 @@ type AuthService interface {
 
 // authService 认证服务实现
 type authService struct {
-	userRepo     repository.UserRepository
-	tokenService TokenService
-	ruleService  RuleService
+	userRepo        repository.UserRepository
+	tokenService    TokenService
+	ruleService     RuleService
+	verificationSvc VerificationService
 }
 
 // NewAuthService 创建认证服务实例
-func NewAuthService(userRepo repository.UserRepository, tokenService TokenService, ruleService RuleService) AuthService {
+func NewAuthService(
+	userRepo repository.UserRepository,
+	tokenService TokenService,
+	ruleService RuleService,
+	verificationSvc VerificationService,
+) AuthService {
 	return &authService{
-		userRepo:     userRepo,
-		tokenService: tokenService,
-		ruleService:  ruleService,
+		userRepo:        userRepo,
+		tokenService:    tokenService,
+		ruleService:     ruleService,
+		verificationSvc: verificationSvc,
 	}
 }
 
 // Login 用户登录
-func (s *authService) Login(ctx context.Context, appID string, req *model.LoginRequest) (*model.LoginResponse, error) {
-	// 通过用户名查找用户
+func (s *authService) Login(ctx context.Context, appID string, req *model.LoginRequest) (*model.ExtendedLoginResponse, error) {
+	// 验证用户名密码
 	user, err := s.userRepo.GetByUsername(ctx, appID, req.Username)
 	if err != nil {
 		return nil, err
@@ -70,7 +82,7 @@ func (s *authService) Login(ctx context.Context, appID string, req *model.LoginR
 	}
 
 	// 验证密码
-	if !user.ValidatePassword(req.Password) {
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
 		return nil, ErrInvalidCredentials
 	}
 
@@ -79,14 +91,55 @@ func (s *authService) Login(ctx context.Context, appID string, req *model.LoginR
 		return nil, ErrUserDisabled
 	}
 
-	// 生成令牌对
-	tokenPair, err := s.tokenService.GenerateTokenPair(ctx, user, "read write openid profile email phone")
+	// 创建验证会话
+	if _, err := s.verificationSvc.CreateSession(ctx, appID, user.ID, "login"); err != nil {
+		return nil, fmt.Errorf("failed to create verification session: %v", err)
+	}
+
+	// 获取需要的插件
+	plugins, err := s.verificationSvc.GetRequiredPlugins(ctx, appID, "login")
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("Required plugins: %+v", plugins)
+
+	// 检查验证状态
+	verifyStatus, err := s.verificationSvc.ValidatePluginStatus(ctx, appID, user.ID, "login")
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("Verification status: completed=%v, status=%s, nextPlugin=%+v",
+		verifyStatus.Completed, verifyStatus.Status, verifyStatus.NextPlugin)
+
+	// 如果有需要验证的插件但未完成验证，直接返回pending状态
+	if len(plugins) > 0 && !verifyStatus.Completed {
+		log.Printf("Plugin verification required: plugins=%d, completed=%v",
+			len(plugins), verifyStatus.Completed)
+		return &model.ExtendedLoginResponse{
+			User: model.UserResponse{
+				ID:        user.ID,
+				AppID:     user.AppID,
+				Username:  user.Username,
+				Nickname:  user.Nickname,
+				Email:     user.Email,
+				Phone:     user.Phone,
+				Status:    user.Status,
+				CreatedAt: user.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+				UpdatedAt: user.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			},
+			AuthStatus: verifyStatus.Status,
+			Plugins:    plugins,
+			NextPlugin: verifyStatus.NextPlugin,
+		}, ErrPluginRequired
+	}
+
+	// 如果验证完成，则生成token
+	tokenPair, err := s.tokenService.GenerateTokenPair(ctx, user, "read")
 	if err != nil {
 		return nil, err
 	}
 
-	// 构造登录响应
-	return &model.LoginResponse{
+	return &model.ExtendedLoginResponse{
 		User: model.UserResponse{
 			ID:        user.ID,
 			AppID:     user.AppID,
@@ -101,11 +154,14 @@ func (s *authService) Login(ctx context.Context, appID string, req *model.LoginR
 		AccessToken:  tokenPair.AccessToken,
 		RefreshToken: tokenPair.RefreshToken,
 		ExpiresIn:    int64(tokenPair.AccessTokenExpireIn.Seconds()),
+		AuthStatus:   model.PluginStatusCompleted,
+		Plugins:      plugins,
+		NextPlugin:   verifyStatus.NextPlugin,
 	}, nil
 }
 
 // RefreshToken 刷新访问令牌
-func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*model.LoginResponse, error) {
+func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*model.ExtendedLoginResponse, error) {
 	// 使用TokenService刷新令牌
 	tokenPair, err := s.tokenService.RefreshToken(ctx, refreshToken)
 	if err != nil {
@@ -132,7 +188,7 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*m
 	}
 
 	// 构造响应
-	return &model.LoginResponse{
+	return &model.ExtendedLoginResponse{
 		User: model.UserResponse{
 			ID:        user.ID,
 			AppID:     user.AppID,
@@ -147,6 +203,7 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*m
 		AccessToken:  tokenPair.AccessToken,
 		RefreshToken: tokenPair.RefreshToken,
 		ExpiresIn:    int64(tokenPair.AccessTokenExpireIn.Seconds()),
+		AuthStatus:   model.PluginStatusCompleted,
 	}, nil
 }
 

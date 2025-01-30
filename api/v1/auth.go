@@ -55,6 +55,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid username or password"})
 		case service.ErrUserDisabled:
 			c.JSON(http.StatusForbidden, gin.H{"error": "user is disabled"})
+		case service.ErrPluginRequired:
+			// 当需要插件验证时，只返回验证相关信息
+			c.JSON(http.StatusAccepted, gin.H{
+				"auth_status": resp.AuthStatus,
+				"plugins":     resp.Plugins,
+				"next_plugin": resp.NextPlugin,
+			})
+			return
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}

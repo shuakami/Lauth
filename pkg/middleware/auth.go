@@ -81,6 +81,10 @@ func (m *AuthMiddleware) HandleAuth() gin.HandlerFunc {
 		log.Printf("Token validated successfully, claims: %+v", claims)
 		// 将用户信息存入上下文
 		c.Set(ContextKeyUser, claims)
+		// 设置常用字段
+		c.Set("user_id", claims.UserID)
+		c.Set("app_id", claims.AppID)
+		c.Set("username", claims.Username)
 		c.Next()
 	}
 }

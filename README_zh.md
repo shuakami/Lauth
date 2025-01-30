@@ -59,6 +59,12 @@ LAuth 是一个企业级统一认证平台，为多个应用提供集中式的�
   - 实时审计日志推送（WebSocket）
   - 可配置的认证流程
   - 高性能缓存
+- **插件系统**：
+  - 灵活的验证插件
+  - 邮件验证支持
+  - 可扩展的插件架构
+  - 插件生命周期管理
+  - 实时插件状态追踪
 - **用户档案管理**：
   - 灵活的档案模式
   - 自定义字段支持
@@ -207,6 +213,13 @@ go run main.go
 - `DELETE /api/v1/apps/:id/rules/:rule_id/conditions` - 删除规则条件
 - `GET /api/v1/apps/:id/rules/:rule_id/conditions` - 获取规则条件
 
+### 插件管理
+
+- `POST /api/v1/apps/:id/plugins/load` - 加载插件
+- `POST /api/v1/apps/:id/plugins/unload/:name` - 卸载插件
+- `POST /api/v1/apps/:id/plugins/execute/:name` - 执行插件
+- `GET /api/v1/apps/:id/plugins/list` - 插件列表
+
 ### OAuth 2.0 和 OpenID Connect
 
 #### OAuth 2.0 端点
@@ -246,6 +259,7 @@ LAuth 支持通过环境变量或配置文件进行配置。配置文件位于 `
 - 认证选项
 - 权限系统设置
 - 规则引擎配置
+- 插件系统设置（插件目录、配置项）
 
 ## 开发路线
 

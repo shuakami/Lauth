@@ -59,6 +59,12 @@ LAuth is an enterprise-grade unified authentication platform that provides centr
   - Real-time audit log streaming via WebSocket
   - Configurable authentication flows
   - High-performance caching
+- **Plugin System**:
+  - Flexible verification plugins
+  - Email verification support
+  - Extensible plugin architecture
+  - Plugin lifecycle management
+  - Real-time plugin status tracking
 - **User Profile Management**:
   - Flexible profile schema
   - Custom fields support
@@ -207,6 +213,13 @@ go run main.go
 - `DELETE /api/v1/apps/:id/rules/:rule_id/conditions` - Remove rule conditions
 - `GET /api/v1/apps/:id/rules/:rule_id/conditions` - Get rule conditions
 
+### Plugin Management
+
+- `POST /api/v1/apps/:id/plugins/load` - Load plugin
+- `POST /api/v1/apps/:id/plugins/unload/:name` - Unload plugin
+- `POST /api/v1/apps/:id/plugins/execute/:name` - Execute plugin
+- `GET /api/v1/apps/:id/plugins/list` - List plugins
+
 ### OAuth 2.0 and OpenID Connect
 
 #### OAuth 2.0 Endpoints
@@ -246,6 +259,7 @@ Key configuration options:
 - Authentication options
 - Permission system settings
 - Rules engine configuration
+- Plugin system settings (plugins directory, configurations)
 
 ## Roadmap
 
