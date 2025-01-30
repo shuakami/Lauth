@@ -55,7 +55,8 @@ LAuth is an enterprise-grade unified authentication platform that provides centr
   - Simple SDK (coming soon)
 - **Enterprise Ready**:
   - Multi-tenant architecture
-  - Audit logging
+  - Audit logging with integrity verification
+  - Real-time audit log streaming via WebSocket
   - Configurable authentication flows
   - High-performance caching
 - **User Profile Management**:
@@ -224,6 +225,13 @@ go run main.go
 - `GET /.well-known/jwks.json` - JWKS endpoint
 - `GET /api/v1/userinfo` - UserInfo endpoint
 - `GET /api/v1/users/me` - Get current user info
+
+### Audit Logging
+
+- `GET /api/v1/audit/logs` - Query audit logs
+- `GET /api/v1/audit/logs/verify` - Verify log file integrity
+- `GET /api/v1/audit/stats` - Get audit statistics
+- `GET /api/v1/audit/ws` - WebSocket connection for real-time logs
 
 ## Configuration
 

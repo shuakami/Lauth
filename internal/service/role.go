@@ -27,6 +27,7 @@ type RoleService interface {
 	AddPermissions(ctx context.Context, roleID string, permissionIDs []string) error
 	RemovePermissions(ctx context.Context, roleID string, permissionIDs []string) error
 	GetPermissions(ctx context.Context, roleID string) ([]model.Permission, error)
+	HasPermission(ctx context.Context, userID string, permissionCode string) (bool, error)
 
 	// 用户角色管理
 	AddUsers(ctx context.Context, roleID string, userIDs []string) error
@@ -219,4 +220,30 @@ func (s *roleService) GetUsers(ctx context.Context, roleID string) ([]model.User
 	}
 
 	return s.roleRepo.GetUsers(ctx, roleID)
+}
+
+// HasPermission 检查用户是否有指定权限
+func (s *roleService) HasPermission(ctx context.Context, userID string, permissionCode string) (bool, error) {
+	// 获取用户的所有角色
+	roles, err := s.roleRepo.GetUserRoles(ctx, userID, "") // 暂时传空字符串作为appID
+	if err != nil {
+		return false, err
+	}
+
+	// 获取每个角色的权限
+	for _, role := range roles {
+		permissions, err := s.GetPermissions(ctx, role.ID)
+		if err != nil {
+			return false, err
+		}
+
+		// 检查是否有匹配的权限代码
+		for _, perm := range permissions {
+			if perm.Code == permissionCode {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
 }

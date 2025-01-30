@@ -55,7 +55,8 @@ LAuth 是一个企业级统一认证平台，为多个应用提供集中式的�
   - 简单的 SDK（开发中）
 - **企业级特性**：
   - 多租户架构
-  - 审计日志
+  - 审计日志（支持完整性验证）
+  - 实时审计日志推送（WebSocket）
   - 可配置的认证流程
   - 高性能缓存
 - **用户档案管理**：
@@ -224,6 +225,13 @@ go run main.go
 - `GET /.well-known/jwks.json` - JWKS端点
 - `GET /api/v1/userinfo` - 用户信息端点
 - `GET /api/v1/users/me` - 获取当前用户信息
+
+### 审计日志
+
+- `GET /api/v1/audit/logs` - 查询审计日志
+- `GET /api/v1/audit/logs/verify` - 验证日志文件完整性
+- `GET /api/v1/audit/stats` - 获取审计统计信息
+- `GET /api/v1/audit/ws` - WebSocket连接（实时日志）
 
 ## 配置说明
 

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	v1 "lauth/api/v1"
+	"lauth/internal/audit"
 	"lauth/internal/model"
 	"lauth/internal/repository"
 	"lauth/internal/service"
@@ -143,6 +144,28 @@ func main() {
 		oidcService,
 	)
 
+	// 初始化审计系统组件
+	hashChain := audit.NewHashChain()
+	auditWriter, err := audit.NewWriter(audit.WriterConfig{
+		BaseDir:    cfg.Audit.LogDir,
+		RotateSize: cfg.Audit.RotationSize,
+		HashChain:  hashChain,
+	})
+	if err != nil {
+		log.Fatalf("Failed to create audit writer: %v", err)
+	}
+	defer auditWriter.Close()
+
+	auditReader := audit.NewReader(cfg.Audit.LogDir)
+	wsConfig := &audit.WebSocketConfig{
+		PingInterval:   time.Duration(cfg.Audit.WebSocket.PingInterval) * time.Second,
+		WriteWait:      time.Duration(cfg.Audit.WebSocket.WriteWait) * time.Second,
+		ReadWait:       time.Duration(cfg.Audit.WebSocket.ReadWait) * time.Second,
+		MaxMessageSize: int64(cfg.Audit.WebSocket.MaxMessageSize),
+	}
+	wsServer := audit.NewWebSocketServer(wsConfig)
+	go wsServer.Start()
+
 	// 创建默认的gin引擎
 	r := gin.Default()
 
@@ -151,6 +174,13 @@ func main() {
 
 	// 初始化认证中间件
 	authMiddleware := middleware.NewAuthMiddleware(tokenService, cfg.Server.AuthEnabled)
+
+	// 初始化审计中间件
+	auditMiddleware := middleware.NewAuditMiddleware(auditWriter, wsServer)
+	r.Use(auditMiddleware.Handle())
+
+	// 初始化审计日志权限中间件
+	auditPermissionMiddleware := audit.NewAuditPermissionMiddleware(roleService)
 
 	// 初始化处理器
 	appHandler := v1.NewAppHandler(appService)
@@ -164,6 +194,7 @@ func main() {
 	profileHandler := v1.NewProfileHandler(profileService)
 	fileHandler := v1.NewFileHandler(fileService)
 	oidcHandler := v1.NewOIDCHandler(oidcService, tokenService)
+	auditHandler := v1.NewAuditHandler(auditReader, wsServer)
 
 	// 初始化路由管理器
 	router := router.NewRouter(
@@ -180,6 +211,8 @@ func main() {
 		profileHandler,
 		fileHandler,
 		oidcHandler,
+		auditHandler,
+		auditPermissionMiddleware,
 	)
 
 	// 注册所有路由

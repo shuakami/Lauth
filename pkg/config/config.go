@@ -10,12 +10,13 @@ import (
 
 // Config 应用配置结构
 type Config struct {
-	Server   ServerConfig    `yaml:"server"`
-	Database database.Config `yaml:"database"`
-	MongoDB  MongoDBConfig   `yaml:"mongodb"`
-	Redis    RedisConfig     `yaml:"redis"`
-	JWT      JWTConfig       `yaml:"jwt"`
-	OIDC     OIDCConfig      `yaml:"oidc"`
+	Server   ServerConfig    `mapstructure:"server"`
+	Database database.Config `mapstructure:"database"`
+	MongoDB  MongoDBConfig   `mapstructure:"mongodb"`
+	Redis    RedisConfig     `mapstructure:"redis"`
+	JWT      JWTConfig       `mapstructure:"jwt"`
+	OIDC     OIDCConfig      `mapstructure:"oidc"`
+	Audit    AuditConfig     `mapstructure:"audit"`
 }
 
 // ServerConfig 服务器配置
@@ -55,9 +56,27 @@ type OIDCConfig struct {
 	PublicKeyPath  string `mapstructure:"public_key_path"`  // RSA公钥路径
 }
 
+// AuditConfig 审计配置
+type AuditConfig struct {
+	LogDir        string          `mapstructure:"log_dir"`        // 日志目录
+	RotationSize  int64           `mapstructure:"rotation_size"`  // 日志文件轮转大小
+	RetentionDays int             `mapstructure:"retention_days"` // 日志保留天数
+	WebSocket     WebSocketConfig `mapstructure:"websocket"`      // WebSocket配置
+}
+
+// WebSocketConfig WebSocket配置
+type WebSocketConfig struct {
+	PingInterval   int `mapstructure:"ping_interval"`    // 心跳间隔(秒)
+	WriteWait      int `mapstructure:"write_wait"`       // 写超时(秒)
+	ReadWait       int `mapstructure:"read_wait"`        // 读超时(秒)
+	MaxMessageSize int `mapstructure:"max_message_size"` // 最大消息大小(字节)
+}
+
 // LoadConfig 加载配置文件
 func LoadConfig(configPath string) (*Config, error) {
 	viper.SetConfigFile(configPath)
+	viper.SetConfigType("yaml") // 设置配置文件类型
+	viper.AutomaticEnv()        // 读取环境变量
 
 	if err := viper.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)

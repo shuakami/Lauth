@@ -179,9 +179,15 @@ func (r *roleRepository) GetUsers(ctx context.Context, roleID string) ([]model.U
 // GetUserRoles 获取用户在指定应用下的角色列表
 func (r *roleRepository) GetUserRoles(ctx context.Context, userID, appID string) ([]model.Role, error) {
 	var roles []model.Role
-	err := r.db.WithContext(ctx).
+	query := r.db.WithContext(ctx).
 		Joins("JOIN user_roles ON user_roles.role_id = roles.id").
-		Where("user_roles.user_id = ? AND roles.app_id = ?", userID, appID).
-		Find(&roles).Error
+		Where("user_roles.user_id = ?", userID)
+
+	// 只有在提供了appID时才添加应用过滤条件
+	if appID != "" {
+		query = query.Where("roles.app_id = ?", appID)
+	}
+
+	err := query.Find(&roles).Error
 	return roles, err
 }

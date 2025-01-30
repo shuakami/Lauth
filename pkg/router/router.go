@@ -2,6 +2,7 @@ package router
 
 import (
 	v1 "lauth/api/v1"
+	"lauth/internal/audit"
 	"lauth/pkg/middleware"
 	"net/http"
 
@@ -10,19 +11,21 @@ import (
 
 // Router 路由管理器
 type Router struct {
-	engine             *gin.Engine
-	authMiddleware     *middleware.AuthMiddleware
-	authHandler        *v1.AuthHandler
-	appHandler         *v1.AppHandler
-	userHandler        *v1.UserHandler
-	permissionHandler  *v1.PermissionHandler
-	roleHandler        *v1.RoleHandler
-	ruleHandler        *v1.RuleHandler
-	oauthClientHandler *v1.OAuthClientHandler
-	authzHandler       *v1.AuthorizationHandler
-	profileHandler     *v1.ProfileHandler
-	fileHandler        *v1.FileHandler
-	oidcHandler        *v1.OIDCHandler
+	engine                    *gin.Engine
+	authMiddleware            *middleware.AuthMiddleware
+	authHandler               *v1.AuthHandler
+	appHandler                *v1.AppHandler
+	userHandler               *v1.UserHandler
+	permissionHandler         *v1.PermissionHandler
+	roleHandler               *v1.RoleHandler
+	ruleHandler               *v1.RuleHandler
+	oauthClientHandler        *v1.OAuthClientHandler
+	authzHandler              *v1.AuthorizationHandler
+	profileHandler            *v1.ProfileHandler
+	fileHandler               *v1.FileHandler
+	oidcHandler               *v1.OIDCHandler
+	auditHandler              *v1.AuditHandler
+	auditPermissionMiddleware *audit.AuditPermissionMiddleware
 }
 
 // NewRouter 创建路由管理器实例
@@ -40,21 +43,25 @@ func NewRouter(
 	profileHandler *v1.ProfileHandler,
 	fileHandler *v1.FileHandler,
 	oidcHandler *v1.OIDCHandler,
+	auditHandler *v1.AuditHandler,
+	auditPermissionMiddleware *audit.AuditPermissionMiddleware,
 ) *Router {
 	return &Router{
-		engine:             engine,
-		authMiddleware:     authMiddleware,
-		authHandler:        authHandler,
-		appHandler:         appHandler,
-		userHandler:        userHandler,
-		permissionHandler:  permissionHandler,
-		roleHandler:        roleHandler,
-		ruleHandler:        ruleHandler,
-		oauthClientHandler: oauthClientHandler,
-		authzHandler:       authzHandler,
-		profileHandler:     profileHandler,
-		fileHandler:        fileHandler,
-		oidcHandler:        oidcHandler,
+		engine:                    engine,
+		authMiddleware:            authMiddleware,
+		authHandler:               authHandler,
+		appHandler:                appHandler,
+		userHandler:               userHandler,
+		permissionHandler:         permissionHandler,
+		roleHandler:               roleHandler,
+		ruleHandler:               ruleHandler,
+		oauthClientHandler:        oauthClientHandler,
+		authzHandler:              authzHandler,
+		profileHandler:            profileHandler,
+		fileHandler:               fileHandler,
+		oidcHandler:               oidcHandler,
+		auditHandler:              auditHandler,
+		auditPermissionMiddleware: auditPermissionMiddleware,
 	}
 }
 
@@ -90,6 +97,8 @@ func (r *Router) RegisterRoutes() {
 		r.registerFileRoutes(api)
 		// 注册OIDC相关路由
 		r.registerOIDCRoutes(api)
+		// 注册审计相关路由
+		r.registerAuditRoutes(api)
 	}
 
 	// OIDC发现端点（必须在根路径）
@@ -181,4 +190,17 @@ func (r *Router) registerFileRoutes(group *gin.RouterGroup) {
 // registerOIDCRoutes 注册OIDC相关路由
 func (r *Router) registerOIDCRoutes(group *gin.RouterGroup) {
 	r.oidcHandler.Register(group, r.authMiddleware)
+}
+
+// registerAuditRoutes 注册审计相关路由
+func (r *Router) registerAuditRoutes(group *gin.RouterGroup) {
+	audit := group.Group("/audit")
+	audit.Use(r.authMiddleware.HandleAuth())
+	audit.Use(r.auditPermissionMiddleware.Handle())
+	{
+		audit.GET("/logs", r.auditHandler.GetLogs)
+		audit.GET("/logs/verify", r.auditHandler.VerifyLogFile)
+		audit.GET("/stats", r.auditHandler.GetStats)
+		audit.GET("/ws", r.auditHandler.HandleWebSocket)
+	}
 }

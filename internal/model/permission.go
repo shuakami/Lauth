@@ -30,12 +30,13 @@ const (
 // Permission 权限实体
 type Permission struct {
 	ID           string       `gorm:"type:uuid;primary_key" json:"id"`
-	AppID        string       `gorm:"type:uuid;not null" json:"app_id"`                        // 关联的应用ID
-	Name         string       `gorm:"type:varchar(100);not null" json:"name"`                  // 权限名称
-	Description  string       `gorm:"type:text" json:"description"`                            // 权限描述
-	ResourceType ResourceType `gorm:"type:varchar(50);not null" json:"resource_type"`          // 资源类型
-	Action       ActionType   `gorm:"type:varchar(50);not null" json:"action"`                 // 操作类型
-	Effect       string       `gorm:"type:varchar(50);not null;default:'allow'" json:"effect"` // 效果：allow/deny
+	AppID        string       `gorm:"type:uuid;not null" json:"app_id"`                                // 关联的应用ID
+	Name         string       `gorm:"type:varchar(100);not null" json:"name"`                          // 权限名称
+	Code         string       `gorm:"type:varchar(100);not null;uniqueIndex:idx_app_code" json:"code"` // 权限代码
+	Description  string       `gorm:"type:text" json:"description"`                                    // 权限描述
+	ResourceType ResourceType `gorm:"type:varchar(50);not null" json:"resource_type"`                  // 资源类型
+	Action       ActionType   `gorm:"type:varchar(50);not null" json:"action"`                         // 操作类型
+	Effect       string       `gorm:"type:varchar(50);not null;default:'allow'" json:"effect"`         // 效果：allow/deny
 	CreatedAt    time.Time    `json:"created_at"`
 	UpdatedAt    time.Time    `json:"updated_at"`
 

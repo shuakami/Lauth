@@ -25,4 +25,14 @@ jwt:
 oidc:
   issuer: "http://localhost:8080"
   private_key_path: "config/keys/oidc.key"
-  public_key_path: "config/keys/oidc.pub" 
+  public_key_path: "config/keys/oidc.pub"
+
+audit:
+  log_dir: "logs/audit"  # 审计日志存储目录
+  rotation_size: 10485760  # 日志文件轮转大小,单位字节,默认10MB
+  retention_days: 90  # 日志保留天数
+  websocket:
+    ping_interval: 30  # WebSocket心跳间隔,单位秒
+    write_wait: 10    # WebSocket写超时,单位秒
+    read_wait: 60     # WebSocket读超时,单位秒
+    max_message_size: 1024  # WebSocket最大消息大小,单位字节 
