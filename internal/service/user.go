@@ -18,7 +18,6 @@ var (
 
 // UserService 用户服务接口
 type UserService interface {
-	CreateUser(ctx context.Context, appID string, req *model.CreateUserRequest) (*model.User, error)
 	GetUser(ctx context.Context, id string) (*model.User, error)
 	GetUserWithProfile(ctx context.Context, id string) (*model.User, *model.Profile, error)
 	UpdateUser(ctx context.Context, id string, req *model.UpdateUserRequest) (*model.User, error)
@@ -42,51 +41,6 @@ func NewUserService(userRepo repository.UserRepository, appRepo repository.AppRe
 		appRepo:    appRepo,
 		profileSvc: profileSvc,
 	}
-}
-
-// CreateUser 创建用户
-func (s *userService) CreateUser(ctx context.Context, appID string, req *model.CreateUserRequest) (*model.User, error) {
-	// 验证应用是否存在
-	app, err := s.appRepo.GetByID(ctx, appID)
-	if err != nil {
-		return nil, err
-	}
-	if app == nil {
-		return nil, ErrAppNotFound
-	}
-
-	// 检查用户名是否已存在
-	existingUser, err := s.userRepo.GetByUsername(ctx, appID, req.Username)
-	if err != nil {
-		return nil, err
-	}
-	if existingUser != nil {
-		return nil, ErrUserExists
-	}
-
-	user := &model.User{
-		AppID:    appID,
-		Username: req.Username,
-		Password: req.Password,
-		Nickname: req.Nickname,
-		Email:    req.Email,
-		Phone:    req.Phone,
-		Status:   model.UserStatusEnabled,
-	}
-
-	if err := s.userRepo.Create(ctx, user); err != nil {
-		return nil, err
-	}
-
-	// 如果请求中包含Profile信息,创建用户档案
-	if req.Profile != nil {
-		if _, err := s.profileSvc.CreateProfile(ctx, user.ID, appID, req.Profile); err != nil {
-			// 如果创建档案失败,记录错误但不影响用户创建
-			log.Printf("创建用户档案失败: %v", err)
-		}
-	}
-
-	return user, nil
 }
 
 // GetUser 获取用户

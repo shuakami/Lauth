@@ -12,14 +12,16 @@ type PluginRequirement struct {
 
 // PluginStatus 插件状态记录
 type PluginStatus struct {
-	ID        string    `json:"id"`         // 状态ID
-	AppID     string    `json:"app_id"`     // 应用ID
-	UserID    string    `json:"user_id"`    // 用户ID
-	Action    string    `json:"action"`     // 动作
-	Plugin    string    `json:"plugin"`     // 插件名称
-	Status    string    `json:"status"`     // 状态
-	CreatedAt time.Time `json:"created_at"` // 创建时间
-	UpdatedAt time.Time `json:"updated_at"` // 更新时间
+	ID             string    `json:"id" gorm:"primaryKey"`           // 状态ID
+	AppID          string    `json:"app_id" gorm:"index"`            // 应用ID
+	UserID         *string   `json:"user_id,omitempty" gorm:"index"` // 用户ID（可选）
+	Identifier     string    `json:"identifier" gorm:"index"`        // 标识符（邮箱/手机号）
+	IdentifierType string    `json:"identifier_type"`                // 标识符类型
+	Action         string    `json:"action"`                         // 动作
+	Plugin         string    `json:"plugin"`                         // 插件名称
+	Status         string    `json:"status"`                         // 状态
+	CreatedAt      time.Time `json:"created_at"`                     // 创建时间
+	UpdatedAt      time.Time `json:"updated_at"`                     // 更新时间
 }
 
 // PluginStatus 插件状态
@@ -58,17 +60,50 @@ func (PluginConfig) TableName() string {
 
 // VerificationSession 验证会话
 type VerificationSession struct {
-	ID        string    `json:"id" gorm:"primaryKey"` // 会话ID
-	AppID     string    `json:"app_id" gorm:"index"`  // 应用ID
-	UserID    string    `json:"user_id" gorm:"index"` // 用户ID
-	Action    string    `json:"action"`               // 动作(login/register等)
-	Status    string    `json:"status"`               // 状态
-	CreatedAt time.Time `json:"created_at"`           // 创建时间
-	UpdatedAt time.Time `json:"updated_at"`           // 更新时间
-	ExpiredAt time.Time `json:"expired_at"`           // 过期时间
+	ID             string                 `json:"id" gorm:"primaryKey"`                     // 会话ID
+	AppID          string                 `json:"app_id" gorm:"index"`                      // 应用ID
+	UserID         *string                `json:"user_id,omitempty" gorm:"index"`           // 用户ID（可选）
+	Identifier     string                 `json:"identifier" gorm:"index"`                  // 标识符（邮箱/手机号）
+	IdentifierType string                 `json:"identifier_type"`                          // 标识符类型（email/phone）
+	Action         string                 `json:"action"`                                   // 动作(login/register等)
+	Status         string                 `json:"status"`                                   // 状态
+	Context        map[string]interface{} `json:"context" gorm:"type:json;serializer:json"` // 验证上下文
+	CreatedAt      time.Time              `json:"created_at"`                               // 创建时间
+	UpdatedAt      time.Time              `json:"updated_at"`                               // 更新时间
+	ExpiredAt      time.Time              `json:"expired_at"`                               // 过期时间
 }
 
 // TableName 返回表名
 func (VerificationSession) TableName() string {
 	return "verification_sessions"
+}
+
+// IdentifierType 标识符类型
+const (
+	IdentifierTypeEmail = "email"
+	IdentifierTypePhone = "phone"
+)
+
+// PluginUserConfig 插件用户配置
+type PluginUserConfig struct {
+	ID        string                 `json:"id" gorm:"primaryKey"`
+	AppID     string                 `json:"app_id" gorm:"index:idx_plugin_user_config_unique,unique"`
+	UserID    string                 `json:"user_id" gorm:"index:idx_plugin_user_config_unique,unique"`
+	Plugin    string                 `json:"plugin" gorm:"index:idx_plugin_user_config_unique,unique"`
+	Config    map[string]interface{} `json:"config" gorm:"type:jsonb;serializer:json"`
+	CreatedAt time.Time              `json:"created_at"`
+	UpdatedAt time.Time              `json:"updated_at"`
+}
+
+// PluginVerificationRecord 插件验证记录
+type PluginVerificationRecord struct {
+	ID         string                 `json:"id" gorm:"primaryKey"`
+	AppID      string                 `json:"app_id"`
+	UserID     string                 `json:"user_id"`
+	Plugin     string                 `json:"plugin"`
+	Action     string                 `json:"action"`
+	Context    map[string]interface{} `json:"context" gorm:"type:jsonb;serializer:json"`
+	VerifiedAt time.Time              `json:"verified_at"`
+	CreatedAt  time.Time              `json:"created_at"`
+	UpdatedAt  time.Time              `json:"updated_at"`
 }

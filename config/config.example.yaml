@@ -19,8 +19,8 @@ redis:
 
 jwt:
   secret: "your-jwt-secret"
-  access_token_expire: 24  # 访问令牌过期时间(小时)
-  refresh_token_expire: 168 # 刷新令牌过期时间(小时)
+  access_token_expire: 24  # Access token expiration time (hours)
+  refresh_token_expire: 168 # Refresh token expiration time (hours)
 
 oidc:
   issuer: "http://localhost:8080"
@@ -28,11 +28,28 @@ oidc:
   public_key_path: "config/keys/oidc.pub"
 
 audit:
-  log_dir: "logs/audit"  # 审计日志存储目录
-  rotation_size: 10485760  # 日志文件轮转大小,单位字节,默认10MB
-  retention_days: 90  # 日志保留天数
+  log_dir: "logs/audit"  # Audit log storage directory
+  rotation_size: 10485760  # Log file rotation size, in bytes, default 10MB
+  retention_days: 90  # Log retention days
   websocket:
-    ping_interval: 30  # WebSocket心跳间隔,单位秒
-    write_wait: 10    # WebSocket写超时,单位秒
-    read_wait: 60     # WebSocket读超时,单位秒
-    max_message_size: 1024  # WebSocket最大消息大小,单位字节 
+    ping_interval: 30  # WebSocket heartbeat interval, in seconds
+    write_wait: 10    # WebSocket write timeout, in seconds
+    read_wait: 60     # WebSocket read timeout, in seconds
+    max_message_size: 1024  # WebSocket maximum message size, in bytes 
+
+smtp:
+  # Basic configuration
+  host: "smtp.example.com"  # SMTP server address
+  port: 465  # SMTP server port (QQ email uses port 465)
+  username: "your-email@example.com"  # Your email account
+  password: "your-smtp-password"  # Your SMTP password (QQ email requires authorization code)
+  from_name: "Lauth System"  # Sender display name
+  from_email: "your-email@example.com"  # Sender email
+  template_path: "templates/email"  # Email template path
+
+  # Security configuration
+  insecure_skip_verify: false  # Whether to skip TLS certificate verification, recommended to set to false in production
+  
+  # Timeout configuration
+  connect_timeout: 30  # Connection timeout (seconds)
+  send_timeout: 30  # Send timeout (seconds) 

@@ -17,6 +17,7 @@ type Config struct {
 	JWT      JWTConfig       `mapstructure:"jwt"`
 	OIDC     OIDCConfig      `mapstructure:"oidc"`
 	Audit    AuditConfig     `mapstructure:"audit"`
+	SMTP     SMTPConfig      `mapstructure:"smtp"`
 }
 
 // ServerConfig 服务器配置
@@ -70,6 +71,36 @@ type WebSocketConfig struct {
 	WriteWait      int `mapstructure:"write_wait"`       // 写超时(秒)
 	ReadWait       int `mapstructure:"read_wait"`        // 读超时(秒)
 	MaxMessageSize int `mapstructure:"max_message_size"` // 最大消息大小(字节)
+}
+
+// SMTPConfig SMTP邮件配置
+type SMTPConfig struct {
+	Host               string `mapstructure:"host"`                 // SMTP服务器地址
+	Port               int    `mapstructure:"port"`                 // SMTP服务器端口
+	Username           string `mapstructure:"username"`             // SMTP用户名
+	Password           string `mapstructure:"password"`             // SMTP密码
+	FromName           string `mapstructure:"from_name"`            // 发件人名称
+	FromEmail          string `mapstructure:"from_email"`           // 发件人邮箱
+	TemplatePath       string `mapstructure:"template_path"`        // 邮件模板路径
+	InsecureSkipVerify bool   `mapstructure:"insecure_skip_verify"` // 是否跳过TLS证书验证
+	ConnectTimeout     int    `mapstructure:"connect_timeout"`      // 连接超时时间(秒)
+	SendTimeout        int    `mapstructure:"send_timeout"`         // 发送超时时间(秒)
+}
+
+// NewSMTPConfig 创建SMTP配置
+func NewSMTPConfig() *SMTPConfig {
+	return &SMTPConfig{
+		Host:               "smtp.example.com",
+		Port:               587, // 默认使用STARTTLS端口
+		Username:           "user@example.com",
+		Password:           "password",
+		FromEmail:          "noreply@example.com",
+		FromName:           "System",
+		TemplatePath:       "templates/email",
+		InsecureSkipVerify: false, // 默认验证TLS证书
+		ConnectTimeout:     30,    // 默认30秒连接超时
+		SendTimeout:        30,    // 默认30秒发送超时
+	}
 }
 
 // LoadConfig 加载配置文件

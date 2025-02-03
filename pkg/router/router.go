@@ -27,6 +27,7 @@ type Router struct {
 	auditHandler              *v1.AuditHandler
 	pluginHandler             *v1.PluginHandler
 	auditPermissionMiddleware *audit.AuditPermissionMiddleware
+	loginLocationHandler      *v1.LoginLocationHandler
 }
 
 // NewRouter 创建路由管理器实例
@@ -47,6 +48,7 @@ func NewRouter(
 	auditHandler *v1.AuditHandler,
 	pluginHandler *v1.PluginHandler,
 	auditPermissionMiddleware *audit.AuditPermissionMiddleware,
+	loginLocationHandler *v1.LoginLocationHandler,
 ) *Router {
 	return &Router{
 		engine:                    engine,
@@ -65,6 +67,7 @@ func NewRouter(
 		auditHandler:              auditHandler,
 		pluginHandler:             pluginHandler,
 		auditPermissionMiddleware: auditPermissionMiddleware,
+		loginLocationHandler:      loginLocationHandler,
 	}
 }
 
@@ -104,6 +107,8 @@ func (r *Router) RegisterRoutes() {
 		r.registerAuditRoutes(api)
 		// 注册插件相关路由
 		r.registerPluginRoutes(api)
+		// 注册登录位置相关路由
+		r.registerLoginLocationRoutes(api)
 	}
 
 	// OIDC发现端点（必须在根路径）
@@ -213,36 +218,66 @@ func (r *Router) registerAuditRoutes(group *gin.RouterGroup) {
 // registerPluginRoutes 注册插件相关路由
 func (r *Router) registerPluginRoutes(group *gin.RouterGroup) {
 	plugins := group.Group("/apps/:id/plugins")
-	plugins.Use(r.authMiddleware.HandleAuth())
+
+	// 需要认证的路由
+	authPlugins := plugins.Group("")
+	authPlugins.Use(r.authMiddleware.HandleAuth())
 	{
-		plugins.POST("/load", func(c *gin.Context) {
-			// 参数映射: id -> app_id
+		// 插件管理
+		authPlugins.POST("/install", func(c *gin.Context) {
+			c.Params = append(c.Params, gin.Param{
+				Key:   "app_id",
+				Value: c.Param("id"),
+			})
+			r.pluginHandler.InstallPlugin(c)
+		})
+		authPlugins.POST("/uninstall/:name", func(c *gin.Context) {
+			c.Params = append(c.Params, gin.Param{
+				Key:   "app_id",
+				Value: c.Param("id"),
+			})
+			r.pluginHandler.UninstallPlugin(c)
+		})
+
+		// 已弃用的路由(保持向后兼容)
+		authPlugins.POST("/load", func(c *gin.Context) {
 			c.Params = append(c.Params, gin.Param{
 				Key:   "app_id",
 				Value: c.Param("id"),
 			})
 			r.pluginHandler.LoadPlugin(c)
 		})
-		plugins.POST("/unload/:name", func(c *gin.Context) {
-			c.Params = append(c.Params, gin.Param{
-				Key:   "app_id",
-				Value: c.Param("id"),
-			})
-			r.pluginHandler.UnloadPlugin(c)
-		})
-		plugins.POST("/execute/:name", func(c *gin.Context) {
-			c.Params = append(c.Params, gin.Param{
-				Key:   "app_id",
-				Value: c.Param("id"),
-			})
-			r.pluginHandler.ExecutePlugin(c)
-		})
-		plugins.GET("/list", func(c *gin.Context) {
+
+		// 插件列表
+		authPlugins.GET("/list", func(c *gin.Context) {
 			c.Params = append(c.Params, gin.Param{
 				Key:   "app_id",
 				Value: c.Param("id"),
 			})
 			r.pluginHandler.ListPlugins(c)
 		})
+
+		// 插件配置
+		authPlugins.PUT("/:name/config", func(c *gin.Context) {
+			c.Params = append(c.Params, gin.Param{
+				Key:   "app_id",
+				Value: c.Param("id"),
+			})
+			r.pluginHandler.UpdatePluginConfig(c)
+		})
 	}
+
+	// 插件执行(不需要认证)
+	plugins.POST("/:name/execute", func(c *gin.Context) {
+		c.Params = append(c.Params, gin.Param{
+			Key:   "app_id",
+			Value: c.Param("id"),
+		})
+		r.pluginHandler.ExecutePlugin(c)
+	})
+}
+
+// registerLoginLocationRoutes 注册登录位置相关路由
+func (r *Router) registerLoginLocationRoutes(group *gin.RouterGroup) {
+	r.loginLocationHandler.Register(group, r.authMiddleware)
 }

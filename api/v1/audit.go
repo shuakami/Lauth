@@ -2,6 +2,7 @@ package v1
 
 import (
 	"net/http"
+	"sort"
 	"time"
 
 	"lauth/internal/audit"
@@ -97,6 +98,11 @@ func (h *AuditHandler) GetLogs(c *gin.Context) {
 	if logs == nil {
 		logs = []*audit.AuditLog{}
 	}
+
+	// 按时间戳降序排序
+	sort.Slice(logs, func(i, j int) bool {
+		return logs[i].Timestamp.After(logs[j].Timestamp)
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"total": len(logs),

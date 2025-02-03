@@ -69,6 +69,9 @@ func main() {
 		&model.PluginStatus{},
 		&model.PluginConfig{},
 		&model.VerificationSession{},
+		&model.PluginUserConfig{},
+		&model.PluginVerificationRecord{},
+		&model.LoginLocation{},
 	); err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
@@ -79,7 +82,7 @@ func main() {
 		log.Fatalf("Failed to get underlying *sql.DB: %v", err)
 	}
 	defer sqlDB.Close()
-	defer mongodb.Close(nil)
+	defer mongodb.Close(context.Background())
 
 	// 初始化Redis客户端
 	redisClient, err := redis.NewClient(&redis.Config{
@@ -105,17 +108,26 @@ func main() {
 	pluginStatusRepo := repository.NewPluginStatusRepository(db)
 	pluginConfigRepo := repository.NewPluginConfigRepository(db)
 	verificationSessionRepo := repository.NewVerificationSessionRepository(db)
+	pluginUserConfigRepo := repository.NewPluginUserConfigRepository(db)
+	pluginVerificationRecordRepo := repository.NewPluginVerificationRecordRepository(db)
+	loginLocationRepo := repository.NewLoginLocationRepository(db)
 
 	// 初始化MongoDB仓储层
 	profileRepo := repository.NewProfileRepository(mongodb)
 	fileRepo := repository.NewFileRepository(mongodb)
+
+	// 初始化IP地理位置服务
+	ipLocationService := service.NewIPLocationService("data/ip2region/ip2region.xdb")
+
+	// 初始化登录位置服务
+	loginLocationService := service.NewLoginLocationService(loginLocationRepo, ipLocationService)
 
 	// 初始化Token服务
 	tokenService := service.NewTokenService(
 		redisClient,
 		cfg.JWT.Secret,
 		time.Duration(cfg.JWT.AccessTokenExpire)*time.Hour,
-		time.Duration(cfg.JWT.RefreshTokenExpire)*time.Hour,
+		time.Duration(cfg.JWT.RefreshTokenExpire)*time.Second,
 	)
 
 	// 初始化规则引擎
@@ -125,7 +137,13 @@ func main() {
 	ruleEngine := engine.NewEngine(ruleParser, ruleExecutor, ruleCache, ruleRepo)
 
 	// 初始化插件管理器
-	pluginManager := plugin.NewManager(pluginConfigRepo)
+	pluginManager := plugin.NewManager(
+		pluginConfigRepo,
+		pluginUserConfigRepo,
+		pluginVerificationRecordRepo,
+		loginLocationService,
+		&cfg.SMTP,
+	)
 
 	// 加载插件配置
 	if err := pluginManager.InitPlugins(context.Background()); err != nil {
@@ -139,7 +157,7 @@ func main() {
 	userService := service.NewUserService(userRepo, appRepo, profileService)
 	ruleService := service.NewRuleService(ruleRepo, ruleEngine)
 	verificationService := service.NewVerificationService(pluginManager, pluginStatusRepo, verificationSessionRepo)
-	authService := service.NewAuthService(userRepo, tokenService, ruleService, verificationService)
+	authService := service.NewAuthService(userRepo, appRepo, tokenService, ruleService, verificationService, profileService, loginLocationService)
 	roleService := service.NewRoleService(roleRepo, permissionRepo)
 	permissionService := service.NewPermissionService(permissionRepo, roleRepo)
 	oauthClientService := service.NewOAuthClientService(oauthClientRepo, oauthClientSecretRepo)
@@ -161,7 +179,7 @@ func main() {
 		oidcService,
 	)
 
-	// 初始化审计系统组件
+	// 初始化审计日志
 	hashChain := audit.NewHashChain()
 	auditWriter, err := audit.NewWriter(audit.WriterConfig{
 		BaseDir:    cfg.Audit.LogDir,
@@ -171,37 +189,31 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create audit writer: %v", err)
 	}
-	defer auditWriter.Close()
 
-	auditReader := audit.NewReader(cfg.Audit.LogDir)
-	wsConfig := &audit.WebSocketConfig{
+	// 初始化WebSocket服务器
+	wsServer := audit.NewWebSocketServer(&audit.WebSocketConfig{
 		PingInterval:   time.Duration(cfg.Audit.WebSocket.PingInterval) * time.Second,
 		WriteWait:      time.Duration(cfg.Audit.WebSocket.WriteWait) * time.Second,
 		ReadWait:       time.Duration(cfg.Audit.WebSocket.ReadWait) * time.Second,
 		MaxMessageSize: int64(cfg.Audit.WebSocket.MaxMessageSize),
-	}
-	wsServer := audit.NewWebSocketServer(wsConfig)
+	})
 	go wsServer.Start()
 
-	// 创建默认的gin引擎
-	r := gin.Default()
-
-	// 添加CORS中间件
-	r.Use(middleware.CORSMiddleware())
+	// 初始化审计日志读取器
+	auditReader := audit.NewReader(cfg.Audit.LogDir)
 
 	// 初始化认证中间件
 	authMiddleware := middleware.NewAuthMiddleware(tokenService, cfg.Server.AuthEnabled)
 
 	// 初始化审计中间件
-	auditMiddleware := middleware.NewAuditMiddleware(auditWriter, wsServer)
-	r.Use(auditMiddleware.Handle())
+	auditMiddleware := middleware.NewAuditMiddleware(auditWriter, wsServer, ipLocationService)
 
 	// 初始化审计日志权限中间件
 	auditPermissionMiddleware := audit.NewAuditPermissionMiddleware(roleService)
 
 	// 初始化处理器
 	appHandler := v1.NewAppHandler(appService)
-	userHandler := v1.NewUserHandler(userService)
+	userHandler := v1.NewUserHandler(userService, authService)
 	authHandler := v1.NewAuthHandler(authService)
 	roleHandler := v1.NewRoleHandler(roleService)
 	permissionHandler := v1.NewPermissionHandler(permissionService)
@@ -212,7 +224,21 @@ func main() {
 	fileHandler := v1.NewFileHandler(fileService)
 	oidcHandler := v1.NewOIDCHandler(oidcService, tokenService)
 	auditHandler := v1.NewAuditHandler(auditReader, wsServer)
-	pluginHandler := v1.NewPluginHandler(pluginManager, verificationService)
+	pluginHandler := v1.NewPluginHandler(
+		pluginManager,
+		verificationService,
+		pluginUserConfigRepo,
+		pluginVerificationRecordRepo,
+		&cfg.SMTP,
+	)
+	loginLocationHandler := v1.NewLoginLocationHandler(loginLocationService)
+
+	// 初始化gin引擎
+	r := gin.Default()
+
+	// 添加中间件
+	r.Use(middleware.CORSMiddleware())
+	r.Use(auditMiddleware.Handle())
 
 	// 初始化路由管理器
 	router := router.NewRouter(
@@ -232,6 +258,7 @@ func main() {
 		auditHandler,
 		pluginHandler,
 		auditPermissionMiddleware,
+		loginLocationHandler,
 	)
 
 	// 注册所有路由

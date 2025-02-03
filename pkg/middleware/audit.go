@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"lauth/internal/audit"
+	"lauth/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -23,17 +24,77 @@ func (w *responseWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+// EventTypeStrategy 事件类型策略接口
+type EventTypeStrategy interface {
+	DetermineEventType(path string, method string) audit.EventType
+}
+
+// PathMethodStrategy 路径方法策略
+type PathMethodStrategy struct {
+	eventTypeMap map[string]audit.EventType
+}
+
+// NewPathMethodStrategy 创建路径方法策略实例
+func NewPathMethodStrategy() *PathMethodStrategy {
+	strategy := &PathMethodStrategy{
+		eventTypeMap: make(map[string]audit.EventType),
+	}
+
+	// 注册默认的事件类型映射
+	strategy.RegisterEventType("/api/v1/auth/login", http.MethodPost, audit.EventLogin)
+	strategy.RegisterEventType("/api/v1/auth/logout", http.MethodPost, audit.EventLogout)
+	strategy.RegisterEventType("/api/v1/auth/refresh", http.MethodPost, audit.EventTokenRefresh)
+	strategy.RegisterEventType("/api/v1/oauth/token", http.MethodPost, audit.EventTokenIssue)
+	strategy.RegisterEventType("/api/v1/oauth/authorize", http.MethodPost, audit.EventAuthorize)
+	strategy.RegisterEventType("/api/v1/oauth/revoke", http.MethodPost, audit.EventTokenRevoke)
+	strategy.RegisterEventType("/api/v1/users", http.MethodPost, audit.EventUserCreate)
+	strategy.RegisterEventType("/api/v1/users", http.MethodPut, audit.EventUserUpdate)
+	strategy.RegisterEventType("/api/v1/users", http.MethodDelete, audit.EventUserDelete)
+	strategy.RegisterEventType("/api/v1/apps", http.MethodPost, audit.EventAppCreate)
+	strategy.RegisterEventType("/api/v1/apps", http.MethodPut, audit.EventAppUpdate)
+	strategy.RegisterEventType("/api/v1/apps", http.MethodDelete, audit.EventAppDelete)
+	strategy.RegisterEventType("/api/v1/oauth/clients", http.MethodPost, audit.EventClientCreate)
+	strategy.RegisterEventType("/api/v1/oauth/clients", http.MethodPut, audit.EventClientUpdate)
+	strategy.RegisterEventType("/api/v1/oauth/clients", http.MethodDelete, audit.EventClientDelete)
+
+	return strategy
+}
+
+// RegisterEventType 注册事件类型
+func (s *PathMethodStrategy) RegisterEventType(path string, method string, eventType audit.EventType) {
+	key := s.generateKey(path, method)
+	s.eventTypeMap[key] = eventType
+}
+
+// DetermineEventType 确定事件类型
+func (s *PathMethodStrategy) DetermineEventType(path string, method string) audit.EventType {
+	key := s.generateKey(path, method)
+	if eventType, ok := s.eventTypeMap[key]; ok {
+		return eventType
+	}
+	return ""
+}
+
+// generateKey 生成映射键
+func (s *PathMethodStrategy) generateKey(path string, method string) string {
+	return path + ":" + method
+}
+
 // AuditMiddleware 审计中间件
 type AuditMiddleware struct {
-	writer   *audit.Writer
-	wsServer *audit.WebSocketServer
+	writer        *audit.Writer
+	wsServer      *audit.WebSocketServer
+	eventStrategy EventTypeStrategy
+	ipService     service.IPLocationService
 }
 
 // NewAuditMiddleware 创建新的审计中间件
-func NewAuditMiddleware(writer *audit.Writer, wsServer *audit.WebSocketServer) *AuditMiddleware {
+func NewAuditMiddleware(writer *audit.Writer, wsServer *audit.WebSocketServer, ipService service.IPLocationService) *AuditMiddleware {
 	return &AuditMiddleware{
-		writer:   writer,
-		wsServer: wsServer,
+		writer:        writer,
+		wsServer:      wsServer,
+		eventStrategy: NewPathMethodStrategy(),
+		ipService:     ipService,
 	}
 }
 
@@ -71,7 +132,7 @@ func (m *AuditMiddleware) Handle() gin.HandlerFunc {
 		log := &audit.AuditLog{
 			ID:            uuid.New().String(),
 			Timestamp:     startTime,
-			EventType:     determineEventType(c),
+			EventType:     m.eventStrategy.DetermineEventType(c.Request.URL.Path, c.Request.Method),
 			UserID:        userID,
 			AppID:         appID,
 			ClientIP:      c.ClientIP(),
@@ -95,47 +156,55 @@ func (m *AuditMiddleware) Handle() gin.HandlerFunc {
 		if m.wsServer != nil {
 			m.wsServer.Broadcast(log)
 		}
-	}
-}
 
-// determineEventType 根据请求确定事件类型
-func determineEventType(c *gin.Context) audit.EventType {
-	path := c.Request.URL.Path
-	method := c.Request.Method
+		// 如果是登录事件，异步查询位置信息
+		if log.EventType == audit.EventLogin {
+			go func(logID string, clientIP string) {
+				// 查询IP位置信息
+				location, err := m.ipService.SearchIP(c.Request.Context(), clientIP)
+				if err != nil {
+					return
+				}
 
-	switch {
-	case path == "/api/v1/auth/login":
-		return audit.EventLogin
-	case path == "/api/v1/auth/logout":
-		return audit.EventLogout
-	case path == "/api/v1/auth/refresh":
-		return audit.EventTokenRefresh
-	case path == "/api/v1/oauth/token":
-		return audit.EventTokenIssue
-	case path == "/api/v1/oauth/authorize":
-		return audit.EventAuthorize
-	case path == "/api/v1/oauth/revoke":
-		return audit.EventTokenRevoke
-	case path == "/api/v1/users" && method == http.MethodPost:
-		return audit.EventUserCreate
-	case path == "/api/v1/users" && method == http.MethodPut:
-		return audit.EventUserUpdate
-	case path == "/api/v1/users" && method == http.MethodDelete:
-		return audit.EventUserDelete
-	case path == "/api/v1/apps" && method == http.MethodPost:
-		return audit.EventAppCreate
-	case path == "/api/v1/apps" && method == http.MethodPut:
-		return audit.EventAppUpdate
-	case path == "/api/v1/apps" && method == http.MethodDelete:
-		return audit.EventAppDelete
-	case path == "/api/v1/oauth/clients" && method == http.MethodPost:
-		return audit.EventClientCreate
-	case path == "/api/v1/oauth/clients" && method == http.MethodPut:
-		return audit.EventClientUpdate
-	case path == "/api/v1/oauth/clients" && method == http.MethodDelete:
-		return audit.EventClientDelete
-	default:
-		return ""
+				// 更新审计日志
+				locationInfo := map[string]interface{}{
+					"country":  location.Country,
+					"province": location.Province,
+					"city":     location.City,
+					"isp":      location.ISP,
+				}
+
+				// 创建位置更新日志
+				locationLog := &audit.AuditLog{
+					ID:            logID,
+					Timestamp:     startTime,
+					EventType:     log.EventType,
+					UserID:        userID,
+					AppID:         appID,
+					ClientIP:      clientIP,
+					RequestMethod: log.RequestMethod,
+					RequestPath:   log.RequestPath,
+					RequestQuery:  log.RequestQuery,
+					UserAgent:     log.UserAgent,
+					StatusCode:    log.StatusCode,
+					Details: map[string]interface{}{
+						"duration_ms": log.Details["duration_ms"],
+						"headers":     log.Details["headers"],
+						"location":    locationInfo,
+					},
+				}
+
+				// 更新审计日志
+				if err := m.writer.Write(locationLog); err != nil {
+					return
+				}
+
+				// 通过WebSocket广播更新后的日志
+				if m.wsServer != nil {
+					m.wsServer.Broadcast(locationLog)
+				}
+			}(log.ID, log.ClientIP)
+		}
 	}
 }
 

@@ -41,8 +41,14 @@ type UserResponse struct {
 
 // LoginRequest 登录请求
 type LoginRequest struct {
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required"`
+	Username string `json:"username" binding:"required"` // 用户名
+	Password string `json:"password" binding:"required"` // 密码
+
+	// 验证上下文信息
+	ClientIP   string `json:"client_ip,omitempty"`   // 客户端IP
+	DeviceID   string `json:"device_id,omitempty"`   // 设备ID
+	DeviceType string `json:"device_type,omitempty"` // 设备类型
+	UserAgent  string `json:"user_agent,omitempty"`  // User-Agent
 }
 
 // LoginResponse 登录响应

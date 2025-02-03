@@ -15,11 +15,15 @@ import (
 // UserHandler 用户处理器
 type UserHandler struct {
 	userService service.UserService
+	authService service.AuthService
 }
 
 // NewUserHandler 创建用户处理器实例
-func NewUserHandler(userService service.UserService) *UserHandler {
-	return &UserHandler{userService: userService}
+func NewUserHandler(userService service.UserService, authService service.AuthService) *UserHandler {
+	return &UserHandler{
+		userService: userService,
+		authService: authService,
+	}
 }
 
 // Register 注册路由
@@ -58,7 +62,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
-	user, err := h.userService.CreateUser(c.Request.Context(), appID, &req)
+	user, err := h.authService.Register(c.Request.Context(), appID, &req)
 	if err != nil {
 		switch err {
 		case service.ErrAppNotFound:

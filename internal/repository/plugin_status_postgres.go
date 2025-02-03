@@ -62,3 +62,34 @@ func (r *pluginStatusRepository) DeleteStatus(ctx context.Context, appID, userID
 		Where("app_id = ? AND user_id = ? AND action = ? AND plugin = ?", appID, userID, action, plugin).
 		Delete(&model.PluginStatus{}).Error
 }
+
+// GetStatusByIdentifier 通过标识符获取插件状态
+func (r *pluginStatusRepository) GetStatusByIdentifier(ctx context.Context, appID, identifier, identifierType, action, plugin string) (*model.PluginStatus, error) {
+	var status model.PluginStatus
+	err := r.db.WithContext(ctx).
+		Where("app_id = ? AND identifier = ? AND identifier_type = ? AND action = ? AND plugin = ?",
+			appID, identifier, identifierType, action, plugin).
+		First(&status).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	return &status, err
+}
+
+// ListStatusByIdentifier 通过标识符获取指定操作下的所有插件状态
+func (r *pluginStatusRepository) ListStatusByIdentifier(ctx context.Context, appID, identifier, identifierType, action string) ([]*model.PluginStatus, error) {
+	var statuses []*model.PluginStatus
+	err := r.db.WithContext(ctx).
+		Where("app_id = ? AND identifier = ? AND identifier_type = ? AND action = ?",
+			appID, identifier, identifierType, action).
+		Find(&statuses).Error
+	return statuses, err
+}
+
+// DeleteStatusByIdentifier 通过标识符删除插件状态
+func (r *pluginStatusRepository) DeleteStatusByIdentifier(ctx context.Context, appID, identifier, identifierType, action, plugin string) error {
+	return r.db.WithContext(ctx).
+		Where("app_id = ? AND identifier = ? AND identifier_type = ? AND action = ? AND plugin = ?",
+			appID, identifier, identifierType, action, plugin).
+		Delete(&model.PluginStatus{}).Error
+}

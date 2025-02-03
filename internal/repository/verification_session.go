@@ -16,6 +16,9 @@ type VerificationSessionRepository interface {
 	// GetActiveSession 获取用户当前活动的会话
 	GetActiveSession(ctx context.Context, appID, userID string) (*model.VerificationSession, error)
 
+	// GetActiveSessionByIdentifier 通过标识符获取当前活动的会话
+	GetActiveSessionByIdentifier(ctx context.Context, appID, identifier, identifierType string) (*model.VerificationSession, error)
+
 	// Update 更新会话
 	Update(ctx context.Context, session *model.VerificationSession) error
 

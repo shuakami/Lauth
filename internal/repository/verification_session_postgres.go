@@ -61,6 +61,20 @@ func (r *verificationSessionRepository) GetActiveSession(ctx context.Context, ap
 	return &session, err
 }
 
+// GetActiveSessionByIdentifier 通过标识符获取当前活动的会话
+func (r *verificationSessionRepository) GetActiveSessionByIdentifier(ctx context.Context, appID, identifier, identifierType string) (*model.VerificationSession, error) {
+	var session model.VerificationSession
+	err := r.db.WithContext(ctx).
+		Where("app_id = ? AND identifier = ? AND identifier_type = ? AND expired_at > ?",
+			appID, identifier, identifierType, time.Now()).
+		Order("created_at DESC").
+		First(&session).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	return &session, err
+}
+
 // Update 更新会话
 func (r *verificationSessionRepository) Update(ctx context.Context, session *model.VerificationSession) error {
 	session.UpdatedAt = time.Now()

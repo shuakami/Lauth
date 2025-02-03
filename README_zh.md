@@ -49,22 +49,33 @@ LAuth 是一个企业级统一认证平台，为多个应用提供集中式的�
   - 令牌撤销功能
   - 密码加密存储
   - 可配置的安全策略
+  - 设备识别
+  - 登录位置追踪
+  - 基于IP的安全规则
 - **易于集成**：
   - RESTful API 接口
   - 完整的文档支持
   - 简单的 SDK（开发中）
 - **企业级特性**：
   - 多租户架构
-  - 审计日志（支持完整性验证）
-  - 实时审计日志推送（WebSocket）
+  - 带完整性验证的审计日志
+  - 通过WebSocket实时审计日志流
   - 可配置的认证流程
   - 高性能缓存
+  - IP地理位置服务
+  - 事件类型策略
+  - 登录位置历史
 - **插件系统**：
   - 灵活的验证插件
   - 邮件验证支持
   - 可扩展的插件架构
   - 插件生命周期管理
   - 实时插件状态追踪
+  - 豁免规则支持
+  - 用户配置管理
+  - 验证记录追踪
+  - 插件路由注册
+  - 智能插件接口
 - **用户档案管理**：
   - 灵活的档案模式
   - 自定义字段支持
@@ -144,10 +155,11 @@ go run main.go
 ### 认证接口
 
 - `POST /api/v1/auth/login` - 用户登录
+- `POST /api/v1/auth/login/continue` - 继续登录流程
 - `POST /api/v1/auth/refresh` - 刷新访问令牌
 - `POST /api/v1/auth/logout` - 用户登出
 - `GET /api/v1/auth/validate` - 验证令牌
-- `POST /api/v1/auth/validate-rule` - 组合验证令牌和规则并返回用户信息
+- `POST /api/v1/auth/validate-rule` - 结合用户信息的令牌和规则验证
 
 ### 应用管理
 
@@ -215,10 +227,11 @@ go run main.go
 
 ### 插件管理
 
-- `POST /api/v1/apps/:id/plugins/load` - 加载插件
-- `POST /api/v1/apps/:id/plugins/unload/:name` - 卸载插件
-- `POST /api/v1/apps/:id/plugins/execute/:name` - 执行插件
-- `GET /api/v1/apps/:id/plugins/list` - 插件列表
+- `POST /api/v1/apps/:id/plugins/install` - 安装插件
+- `POST /api/v1/apps/:id/plugins/uninstall/:name` - 卸载插件
+- `POST /api/v1/apps/:id/plugins/:name/execute` - 执行插件
+- `GET /api/v1/apps/:id/plugins/list` - 列出插件
+- `PUT /api/v1/apps/:id/plugins/:name/config` - 更新插件配置
 
 ### OAuth 2.0 和 OpenID Connect
 
@@ -245,6 +258,12 @@ go run main.go
 - `GET /api/v1/audit/logs/verify` - 验证日志文件完整性
 - `GET /api/v1/audit/stats` - 获取审计统计信息
 - `GET /api/v1/audit/ws` - WebSocket连接（实时日志）
+
+### 登录位置
+
+- `GET /api/v1/apps/:id/users/:user_id/login-locations` - 获取用户登录位置
+- `GET /api/v1/apps/:id/users/:user_id/login-locations/:location_id` - 获取登录位置详情
+- `GET /api/v1/apps/:id/users/:user_id/login-locations/stats` - 获取登录位置统计
 
 ## 配置说明
 

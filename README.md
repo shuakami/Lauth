@@ -49,6 +49,9 @@ LAuth is an enterprise-grade unified authentication platform that provides centr
   - Token revocation
   - Password encryption
   - Configurable security policies
+  - Device recognition
+  - Login location tracking
+  - IP-based security rules
 - **Easy Integration**: 
   - RESTful API
   - Comprehensive documentation
@@ -59,12 +62,20 @@ LAuth is an enterprise-grade unified authentication platform that provides centr
   - Real-time audit log streaming via WebSocket
   - Configurable authentication flows
   - High-performance caching
+  - IP geolocation service
+  - Event type strategy
+  - Login location history
 - **Plugin System**:
   - Flexible verification plugins
   - Email verification support
   - Extensible plugin architecture
   - Plugin lifecycle management
   - Real-time plugin status tracking
+  - Exemption rules support
+  - User configuration management
+  - Verification record tracking
+  - Plugin route registration
+  - Smart plugin interface
 - **User Profile Management**:
   - Flexible profile schema
   - Custom fields support
@@ -144,10 +155,17 @@ go run main.go
 ### Authentication Endpoints
 
 - `POST /api/v1/auth/login` - User login
+- `POST /api/v1/auth/login/continue` - Continue login process
 - `POST /api/v1/auth/refresh` - Refresh access token
 - `POST /api/v1/auth/logout` - User logout
 - `GET /api/v1/auth/validate` - Validate token
 - `POST /api/v1/auth/validate-rule` - Combined validation for token and rules with user info
+
+### Login Location
+
+- `GET /api/v1/apps/:id/users/:user_id/login-locations` - Get user login locations
+- `GET /api/v1/apps/:id/users/:user_id/login-locations/:location_id` - Get login location details
+- `GET /api/v1/apps/:id/users/:user_id/login-locations/stats` - Get login location statistics
 
 ### Application Management
 
@@ -215,10 +233,11 @@ go run main.go
 
 ### Plugin Management
 
-- `POST /api/v1/apps/:id/plugins/load` - Load plugin
-- `POST /api/v1/apps/:id/plugins/unload/:name` - Unload plugin
-- `POST /api/v1/apps/:id/plugins/execute/:name` - Execute plugin
+- `POST /api/v1/apps/:id/plugins/install` - Install plugin
+- `POST /api/v1/apps/:id/plugins/uninstall/:name` - Uninstall plugin
+- `POST /api/v1/apps/:id/plugins/:name/execute` - Execute plugin
 - `GET /api/v1/apps/:id/plugins/list` - List plugins
+- `PUT /api/v1/apps/:id/plugins/:name/config` - Update plugin config
 
 ### OAuth 2.0 and OpenID Connect
 

@@ -16,6 +16,7 @@ type ExtendedLoginResponse struct {
 	AuthStatus   string              `json:"auth_status"`             // 认证状态
 	Plugins      []PluginRequirement `json:"plugins,omitempty"`       // 需要的插件列表
 	NextPlugin   *PluginRequirement  `json:"next_plugin,omitempty"`   // 下一个需要验证的插件
+	SessionID    string              `json:"session_id,omitempty"`    // 验证会话ID(验证未完成时返回)
 }
 
 // PendingLoginResponse 未完成验证的登录响应
