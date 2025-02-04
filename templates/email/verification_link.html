@@ -107,7 +107,7 @@
             margin-bottom: 16px;
         }
 
-        .verification-code {
+        .verification-link {
             text-align: center;
             padding: 32px;
             margin: 32px 0;
@@ -115,13 +115,20 @@
             border-radius: 18px;
         }
 
-        .code {
-            font-family: "SF Mono", SFMono-Regular, ui-monospace, monospace;
-            font-size: 48px;
-            line-height: 1.1;
+        .link {
+            display: inline-block;
+            padding: 16px 32px;
+            background-color: var(--accent-color);
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 8px;
+            font-size: 17px;
             font-weight: 600;
-            letter-spacing: 0.2em;
-            color: var(--accent-color);
+            transition: background-color 0.2s ease;
+        }
+
+        .link:hover {
+            background-color: #004499;
         }
 
         .expiry {
@@ -180,16 +187,18 @@
         
         <div class="content">
             <p>Hello,</p>
-            <p>Thank you for choosing Lauth as your authentication solution. To ensure the security of your account, please use the following verification code:</p>
+            <p>Thank you for choosing Lauth as your authentication solution. To verify your email address, please click the button below:</p>
         </div>
 
-        <div class="verification-code">
-            <div class="code">{{.Code}}</div>
-            <div class="expiry">This code will expire in {{.ExpireMinutes}} minutes</div>
+        <div class="verification-link">
+            <a href="{{.Link}}" class="link">Verify Email</a>
+            <div class="expiry">This link will expire in {{.ExpireMinutes}} minutes</div>
         </div>
 
         <div class="content">
-            <p>If you didn't request this code, please ignore this email. Your security is our top priority.</p>
+            <p>If you didn't request this verification, please ignore this email. Your security is our top priority.</p>
+            <p>If you're having trouble clicking the button, copy and paste this URL into your browser:</p>
+            <p style="word-break: break-all; color: var(--accent-color);">{{.Link}}</p>
         </div>
 
         <footer class="footer">

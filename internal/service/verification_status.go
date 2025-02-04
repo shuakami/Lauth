@@ -54,8 +54,10 @@ func (s *verificationStatusService) UpdatePluginStatus(ctx context.Context, appI
 			context := map[string]interface{}{
 				"verified_at": time.Now(),
 			}
-			if _, err := plugin.NeedsVerification(ctx, userID, action, context); err != nil {
-				return fmt.Errorf("failed to update verification record: %v", err)
+			if verifiable, ok := plugin.(types.Verifiable); ok {
+				if _, err := verifiable.NeedsVerification(ctx, userID, action, context); err != nil {
+					return fmt.Errorf("failed to update verification record: %v", err)
+				}
 			}
 		}
 	}
@@ -104,8 +106,10 @@ func (s *verificationStatusService) UpdatePluginStatusBySession(ctx context.Cont
 	if status == model.PluginStatusCompleted {
 		plugin, exists := s.pluginManager.GetPlugin(session.AppID, pluginName)
 		if exists && session.UserID != nil {
-			if err := plugin.OnVerificationSuccess(ctx, *session.UserID, session.Action, session.Context); err != nil {
-				return fmt.Errorf("failed to handle verification success: %v", err)
+			if verifiable, ok := plugin.(types.Verifiable); ok {
+				if err := verifiable.OnVerificationSuccess(ctx, *session.UserID, session.Action, session.Context); err != nil {
+					return fmt.Errorf("failed to handle verification success: %v", err)
+				}
 			}
 		}
 	}

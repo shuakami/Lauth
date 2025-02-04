@@ -38,6 +38,28 @@ func (s *emailCodeSender) Send(to string, code string, expireMinutes int) error 
 	)
 }
 
+// emailLinkSender 邮件验证链接发送器
+type emailLinkSender struct {
+	sender EmailSender
+}
+
+// Send 实现types.LinkSender接口
+func (s *emailLinkSender) Send(to string, link string, expireMinutes int) error {
+	// 准备模板数据
+	data := map[string]interface{}{
+		"Link":          link,
+		"ExpireMinutes": expireMinutes,
+	}
+
+	// 使用HTML模板发送邮件
+	return s.sender.SendWithTemplate(
+		to,
+		"Verification Email",
+		"verification_link",
+		data,
+	)
+}
+
 // VerificationPolicy 验证策略配置
 type VerificationPolicy struct {
 	AlwaysVerify   bool          `json:"always_verify"`   // 是否每次都验证
@@ -46,11 +68,23 @@ type VerificationPolicy struct {
 	ExemptDevices  []string      `json:"exempt_devices"`  // 豁免的设备列表
 }
 
+// VerificationMode 验证模式
+type VerificationMode string
+
+const (
+	// VerificationModeCode 验证码模式
+	VerificationModeCode VerificationMode = "code"
+	// VerificationModeLink 链接模式
+	VerificationModeLink VerificationMode = "link"
+)
+
 // EmailConfig 邮件插件配置
 type EmailConfig struct {
 	CodeLength         int                `json:"code_length"`         // 验证码长度
 	ExpireTime         time.Duration      `json:"expire_time"`         // 验证码过期时间
 	VerificationPolicy VerificationPolicy `json:"verification_policy"` // 验证策略
+	VerificationMode   VerificationMode   `json:"verification_mode"`   // 验证模式
+	LinkConfig         *types.LinkConfig  `json:"link_config"`         // 链接验证配置
 }
 
 // EmailPlugin 邮件验证插件
@@ -59,7 +93,9 @@ type EmailPlugin struct {
 
 	config        *EmailConfig
 	codeManager   types.VerificationCodeManager
+	linkManager   types.VerificationLinkManager
 	codeSender    *emailCodeSender
+	linkSender    *emailLinkSender
 	configManager types.UserConfigManager
 	verifyRepo    repository.PluginVerificationRecordRepository
 	appID         string
@@ -165,8 +201,12 @@ func (p *EmailPlugin) Configure(c container.PluginContainer) error {
 	p.verifyRepo = verifyRepo.(repository.PluginVerificationRecordRepository)
 
 	// 创建邮件发送器
+	emailSender := NewDefaultEmailSender(smtpConfig.(*config.SMTPConfig))
 	p.codeSender = &emailCodeSender{
-		sender: NewDefaultEmailSender(smtpConfig.(*config.SMTPConfig)),
+		sender: emailSender,
+	}
+	p.linkSender = &emailLinkSender{
+		sender: emailSender,
 	}
 
 	// 创建验证码管理器
@@ -176,6 +216,19 @@ func (p *EmailPlugin) Configure(c container.PluginContainer) error {
 			ExpireTime: 5 * time.Minute, // 验证码过期时间
 		},
 		p.codeSender,
+	)
+
+	// 创建链接验证管理器
+	p.linkManager = verification.NewDefaultLinkManager(
+		&types.VerificationConfig{
+			ExpireTime: 30 * time.Minute, // 链接默认30分钟过期
+		},
+		&types.LinkConfig{
+			BaseURL:     "http://localhost:8080/verify", // 默认验证URL
+			TokenLength: 32,                             // 默认token长度
+			ExpireTime:  30 * time.Minute,               // 默认30分钟过期
+		},
+		p.linkSender,
 	)
 
 	// 创建配置管理器
@@ -198,10 +251,16 @@ type emailHooks struct {
 func (h *emailHooks) OnLoad(config map[string]interface{}) error {
 	// 解析配置
 	cfg := &EmailConfig{
-		CodeLength: 6,               // 验证码长度
-		ExpireTime: 5 * time.Minute, // 验证码过期时间
+		CodeLength:       6,                    // 验证码长度
+		ExpireTime:       5 * time.Minute,      // 验证码过期时间
+		VerificationMode: VerificationModeCode, // 默认使用验证码模式
 		VerificationPolicy: VerificationPolicy{
 			VerifyInterval: 24 * time.Hour, // 两次验证的最小间隔
+		},
+		LinkConfig: &types.LinkConfig{
+			BaseURL:     "http://localhost:8080/verify", // 默认验证URL
+			TokenLength: 32,                             // 默认token长度
+			ExpireTime:  30 * time.Minute,               // 默认30分钟过期
 		},
 	}
 
@@ -252,6 +311,28 @@ func (h *emailHooks) OnLoad(config map[string]interface{}) error {
 		}
 	}
 
+	// 读取验证模式
+	if mode, ok := config["verification_mode"].(string); ok {
+		cfg.VerificationMode = VerificationMode(mode)
+	}
+
+	// 读取链接配置
+	if linkConfig, ok := config["link_config"].(map[string]interface{}); ok {
+		if baseURL, ok := linkConfig["base_url"].(string); ok {
+			cfg.LinkConfig.BaseURL = baseURL
+		}
+		if tokenLength, ok := linkConfig["token_length"].(int); ok {
+			cfg.LinkConfig.TokenLength = tokenLength
+		}
+		if expireTime, ok := linkConfig["expire_time"].(string); ok {
+			duration, err := time.ParseDuration(expireTime)
+			if err != nil {
+				return fmt.Errorf("invalid link expire_time format: %v", err)
+			}
+			cfg.LinkConfig.ExpireTime = duration
+		}
+	}
+
 	h.plugin.config = cfg
 
 	// 更新验证码管理器配置
@@ -261,6 +342,15 @@ func (h *emailHooks) OnLoad(config map[string]interface{}) error {
 			ExpireTime: cfg.ExpireTime,
 		},
 		h.plugin.codeSender,
+	)
+
+	// 更新链接验证管理器配置
+	h.plugin.linkManager = verification.NewDefaultLinkManager(
+		&types.VerificationConfig{
+			ExpireTime: cfg.LinkConfig.ExpireTime,
+		},
+		cfg.LinkConfig,
+		h.plugin.linkSender,
 	)
 
 	return nil
@@ -278,6 +368,22 @@ func (h *emailHooks) OnExecute(ctx context.Context, params map[string]interface{
 		return fmt.Errorf("operation parameter is required")
 	}
 
+	// 获取session_id（如果存在）
+	sessionID, _ := params["session_id"].(string)
+
+	// 根据验证模式选择不同的处理逻辑
+	switch h.plugin.config.VerificationMode {
+	case VerificationModeCode:
+		return h.handleCodeMode(email, operation, params)
+	case VerificationModeLink:
+		return h.handleLinkMode(email, operation, sessionID, params)
+	default:
+		return fmt.Errorf("unsupported verification mode: %s", h.plugin.config.VerificationMode)
+	}
+}
+
+// handleCodeMode 处理验证码模式
+func (h *emailHooks) handleCodeMode(email string, operation string, params map[string]interface{}) error {
 	switch operation {
 	case "send":
 		return h.plugin.codeManager.Send(email)
@@ -288,7 +394,33 @@ func (h *emailHooks) OnExecute(ctx context.Context, params map[string]interface{
 		}
 		return h.plugin.codeManager.Verify(email, code)
 	default:
-		return fmt.Errorf("unsupported operation: %s", operation)
+		return fmt.Errorf("unsupported operation for code mode: %s", operation)
+	}
+}
+
+// handleLinkMode 处理链接模式
+func (h *emailHooks) handleLinkMode(email string, operation string, sessionID string, params map[string]interface{}) error {
+	switch operation {
+	case "send":
+		if sessionID == "" {
+			return fmt.Errorf("session_id parameter is required for send operation")
+		}
+		return h.plugin.linkManager.Send(email, sessionID)
+	case "verify":
+		token, ok := params["token"].(string)
+		if !ok {
+			return fmt.Errorf("token parameter is required for verify operation")
+		}
+		// 验证token并获取session_id
+		verifiedSessionID, err := h.plugin.linkManager.Verify(email, token)
+		if err != nil {
+			return err
+		}
+		// 将session_id添加到params中
+		params["session_id"] = verifiedSessionID
+		return nil
+	default:
+		return fmt.Errorf("unsupported operation for link mode: %s", operation)
 	}
 }
 
@@ -495,41 +627,105 @@ func contains(slice []string, item string) bool {
 
 // RegisterRoutes 注册插件路由
 func (p *EmailPlugin) RegisterRoutes(group *gin.RouterGroup) {
-	// 发送验证码
+	// 发送验证码或链接
 	group.POST("/send", func(c *gin.Context) {
 		var req struct {
-			Email string `json:"email" binding:"required,email"`
+			Email     string `json:"email" binding:"required,email"`
+			SessionID string `json:"session_id" binding:"required"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
-		if err := p.codeManager.Send(req.Email); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		// 根据验证模式选择发送方式
+		var err error
+		switch p.config.VerificationMode {
+		case VerificationModeCode:
+			err = p.codeManager.Send(req.Email)
+		case VerificationModeLink:
+			err = p.linkManager.Send(req.Email, req.SessionID)
+		default:
+			err = fmt.Errorf("unsupported verification mode: %s", p.config.VerificationMode)
+		}
+
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
 		c.Status(http.StatusOK)
 	})
 
-	// 验证验证码
+	// 验证验证码或链接
 	group.POST("/verify", func(c *gin.Context) {
 		var req struct {
 			Email string `json:"email" binding:"required,email"`
-			Code  string `json:"code" binding:"required"`
+			Code  string `json:"code"`  // 验证码模式使用
+			Token string `json:"token"` // 链接模式使用
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
-		if err := p.codeManager.Verify(req.Email, req.Code); err != nil {
+		// 根据验证模式选择验证方式
+		var err error
+		var sessionID string
+		switch p.config.VerificationMode {
+		case VerificationModeCode:
+			if req.Code == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "code is required for code mode"})
+				return
+			}
+			err = p.codeManager.Verify(req.Email, req.Code)
+		case VerificationModeLink:
+			if req.Token == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "token is required for link mode"})
+				return
+			}
+			sessionID, err = p.linkManager.Verify(req.Email, req.Token)
+		default:
+			err = fmt.Errorf("unsupported verification mode: %s", p.config.VerificationMode)
+		}
+
+		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
-		c.Status(http.StatusOK)
+		// 如果是链接模式，返回session_id
+		if p.config.VerificationMode == VerificationModeLink {
+			c.JSON(http.StatusOK, gin.H{"session_id": sessionID})
+		} else {
+			c.Status(http.StatusOK)
+		}
+	})
+
+	// 链接验证的重定向处理（用于点击邮件中的链接）
+	group.GET("/verify", func(c *gin.Context) {
+		// 只在链接模式下处理
+		if p.config.VerificationMode != VerificationModeLink {
+			c.String(http.StatusBadRequest, "Verification link mode is not enabled")
+			return
+		}
+
+		email := c.Query("email")
+		token := c.Query("token")
+
+		if email == "" || token == "" {
+			c.String(http.StatusBadRequest, "Missing email or token")
+			return
+		}
+
+		sessionID, err := p.linkManager.Verify(email, token)
+		if err != nil {
+			c.String(http.StatusBadRequest, fmt.Sprintf("Verification failed: %v", err))
+			return
+		}
+
+		// 验证成功，重定向到成功页面，并带上session_id
+		c.Redirect(http.StatusFound, fmt.Sprintf("%s/success?session_id=%s", p.config.LinkConfig.BaseURL, sessionID))
 	})
 }
 

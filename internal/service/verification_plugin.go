@@ -83,7 +83,12 @@ func (s *verificationPluginService) GetRequiredPlugins(ctx context.Context, appI
 		}
 
 		// 检查插件是否需要验证
-		needsVerify, err := plugin.NeedsVerification(ctx, userID, action, verificationContext)
+		verifiable, ok := plugin.(types.Verifiable)
+		if !ok {
+			continue
+		}
+
+		needsVerify, err := verifiable.NeedsVerification(ctx, userID, action, verificationContext)
 		if err != nil {
 			return nil, fmt.Errorf("failed to check if plugin needs verification: %v", err)
 		}
@@ -164,9 +169,14 @@ func (s *verificationPluginService) ValidatePluginStatus(ctx context.Context, ap
 		}
 
 		// 验证当前验证是否有效
+		verifiable, ok := plugin.(types.Verifiable)
+		if !ok {
+			continue
+		}
+
 		verification := verificationMap[req.Name]
 		if verification != nil {
-			valid, err := plugin.ValidateVerification(ctx, userID, action, verification.ID)
+			valid, err := verifiable.ValidateVerification(ctx, userID, action, verification.ID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to validate verification: %v", err)
 			}
@@ -257,13 +267,18 @@ func (s *verificationPluginService) ValidatePluginStatusBySession(ctx context.Co
 		}
 
 		// 验证当前验证是否有效
+		verifiable, ok := plugin.(types.Verifiable)
+		if !ok {
+			continue
+		}
+
 		verification := verificationMap[req.Name]
 		if verification != nil {
 			var userID string
 			if session.UserID != nil {
 				userID = *session.UserID
 			}
-			valid, err := plugin.ValidateVerification(ctx, userID, session.Action, verification.ID)
+			valid, err := verifiable.ValidateVerification(ctx, userID, session.Action, verification.ID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to validate verification: %v", err)
 			}

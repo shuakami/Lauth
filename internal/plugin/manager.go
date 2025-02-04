@@ -71,12 +71,16 @@ func NewManager(
 	// 注册内置插件
 	emailPlugin := email.NewEmailPlugin()
 	metadata := emailPlugin.GetMetadata()
+	var dependencies []string
+	if injectable, ok := emailPlugin.(types.Injectable); ok {
+		dependencies = injectable.GetDependencies()
+	}
 	if err := m.RegisterPlugin(&types.PluginDescriptor{
 		Name:         metadata.Name,
 		Version:      metadata.Version,
 		Factory:      func() types.Plugin { return email.NewEmailPlugin() },
 		Metadata:     metadata,
-		Dependencies: emailPlugin.GetDependencies(),
+		Dependencies: dependencies,
 	}); err != nil {
 		log.Printf("Failed to register email plugin: %v", err)
 	}
@@ -109,8 +113,10 @@ func (m *manager) createPlugin(name string, appID string) (types.Plugin, error) 
 	}
 
 	// 配置插件（注入依赖）
-	if err := p.Configure(m.container); err != nil {
-		return nil, fmt.Errorf("failed to configure plugin: %v", err)
+	if injectable, ok := p.(types.Injectable); ok {
+		if err := injectable.Configure(m.container); err != nil {
+			return nil, fmt.Errorf("failed to configure plugin: %v", err)
+		}
 	}
 
 	return p, nil
@@ -350,7 +356,12 @@ func (m *manager) ExecutePlugin(ctx context.Context, appID string, name string, 
 		return fmt.Errorf("plugin %s not found for app %s", name, appID)
 	}
 
-	return p.Execute(ctx, params)
+	executable, ok := p.(types.Executable)
+	if !ok {
+		return fmt.Errorf("plugin %s does not implement Executable interface", name)
+	}
+
+	return executable.Execute(ctx, params)
 }
 
 // ListPlugins 列出App的所有插件
@@ -445,6 +456,12 @@ func (m *manager) GetPluginConfigs(ctx context.Context, appID string) ([]*model.
 func (m *manager) SavePluginConfig(ctx context.Context, config *model.PluginConfig) error {
 	// 先卸载现有插件
 	if plugin, exists := m.GetPlugin(config.AppID, config.Name); exists {
+		// 先停止插件
+		if err := plugin.Stop(); err != nil {
+			return fmt.Errorf("stop plugin failed: %w", err)
+		}
+
+		// 再卸载插件
 		if err := plugin.Unload(); err != nil {
 			return fmt.Errorf("unload plugin failed: %w", err)
 		}

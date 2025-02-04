@@ -188,6 +188,8 @@ func (h *PluginHandler) ExecutePlugin(c *gin.Context) {
 
 	// 将操作类型添加到参数中
 	req.Params["operation"] = req.Operation
+	// 将session_id添加到参数中
+	req.Params["session_id"] = session.ID
 
 	// 执行插件
 	if err := h.pluginManager.ExecutePlugin(c.Request.Context(), appID, name, req.Params); err != nil {

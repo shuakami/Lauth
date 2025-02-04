@@ -68,6 +68,10 @@ LAuth is an enterprise-grade unified authentication platform that provides centr
 - **Plugin System**:
   - Flexible verification plugins
   - Email verification support
+    - Verification code mode
+    - Verification link mode
+    - Dark mode support
+    - Responsive email templates
   - Extensible plugin architecture
   - Plugin lifecycle management
   - Real-time plugin status tracking
@@ -76,6 +80,10 @@ LAuth is an enterprise-grade unified authentication platform that provides centr
   - Verification record tracking
   - Plugin route registration
   - Smart plugin interface
+  - Plugin dependency injection
+  - Middleware support
+  - Error handling mechanism
+  - Event emission capability
 - **User Profile Management**:
   - Flexible profile schema
   - Custom fields support
