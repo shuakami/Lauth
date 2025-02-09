@@ -42,6 +42,9 @@ type VerificationService interface {
 
 	// ClearVerification 清理验证状态和会话
 	ClearVerification(ctx context.Context, appID string, userID string, action string) error
+
+	// UpdateSessionUserID 更新会话的用户ID
+	UpdateSessionUserID(ctx context.Context, sessionID string, userID string) error
 }
 
 // verificationService 验证服务实现
@@ -122,4 +125,9 @@ func (s *verificationService) UpdatePluginStatusBySession(ctx context.Context, s
 // ClearVerification 清理验证状态和会话
 func (s *verificationService) ClearVerification(ctx context.Context, appID string, userID string, action string) error {
 	return s.statusService.ClearVerification(ctx, appID, userID, action)
+}
+
+// UpdateSessionUserID 更新会话的用户ID
+func (s *verificationService) UpdateSessionUserID(ctx context.Context, sessionID string, userID string) error {
+	return s.sessionService.UpdateSessionUserID(ctx, sessionID, userID)
 }

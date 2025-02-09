@@ -76,6 +76,12 @@ func (s *verificationPluginService) GetRequiredPlugins(ctx context.Context, appI
 			continue
 		}
 
+		// 检查插件状态是否已完成
+		if status, exists := statusMap[config.Name]; exists && status.Status == model.PluginStatusCompleted {
+			fmt.Printf("插件 %s 已完成验证,跳过\n", config.Name)
+			continue
+		}
+
 		// 获取插件实例
 		plugin, exists := s.pluginManager.GetPlugin(appID, config.Name)
 		if !exists {

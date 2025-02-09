@@ -84,6 +84,13 @@ LAuth is an enterprise-grade unified authentication platform that provides centr
   - Middleware support
   - Error handling mechanism
   - Event emission capability
+  - Temporary session support
+  - Verification status cleanup
+  - Plugin status caching
+  - Unified verification context
+  - Automatic plugin status tracking
+  - Smart verification flow
+  - Registration-specific rules
 - **User Profile Management**:
   - Flexible profile schema
   - Custom fields support

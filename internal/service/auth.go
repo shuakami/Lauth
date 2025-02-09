@@ -18,7 +18,7 @@ var (
 // AuthService 认证服务接口
 type AuthService interface {
 	// Register 用户注册
-	Register(ctx context.Context, appID string, req *model.CreateUserRequest) (*model.User, error)
+	Register(ctx context.Context, appID string, req *model.CreateUserRequest) (*model.ExtendedLoginResponse, error)
 
 	// Login 用户登录
 	Login(ctx context.Context, appID string, req *model.LoginRequest) (*model.ExtendedLoginResponse, error)
@@ -69,7 +69,7 @@ func NewAuthService(
 }
 
 // Register 用户注册
-func (s *authService) Register(ctx context.Context, appID string, req *model.CreateUserRequest) (*model.User, error) {
+func (s *authService) Register(ctx context.Context, appID string, req *model.CreateUserRequest) (*model.ExtendedLoginResponse, error) {
 	return s.accountService.Register(ctx, appID, req)
 }
 

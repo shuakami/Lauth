@@ -2,12 +2,16 @@ package model
 
 // CreateUserRequest 创建用户请求
 type CreateUserRequest struct {
-	Username string                `json:"username" binding:"required"`
-	Password string                `json:"password" binding:"required"`
-	Nickname string                `json:"nickname"`
-	Email    string                `json:"email"`
-	Phone    string                `json:"phone"`
-	Profile  *CreateProfileRequest `json:"profile"`
+	Username   string                `json:"username" binding:"required"`
+	Password   string                `json:"password" binding:"required"`
+	Nickname   string                `json:"nickname"`
+	Email      string                `json:"email"`
+	Phone      string                `json:"phone"`
+	Profile    *CreateProfileRequest `json:"profile"`
+	ClientIP   string                `json:"client_ip,omitempty"`   // 客户端IP
+	DeviceID   string                `json:"device_id,omitempty"`   // 设备ID
+	DeviceType string                `json:"device_type,omitempty"` // 设备类型
+	UserAgent  string                `json:"user_agent,omitempty"`  // User-Agent
 }
 
 // UpdateUserRequest 更新用户请求

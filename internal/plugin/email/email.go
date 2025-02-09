@@ -446,6 +446,12 @@ func (p *EmailPlugin) NeedsVerification(ctx context.Context, userID string, acti
 	}
 	fmt.Printf("用户配置: %+v\n", userConfig)
 
+	// 注册时不使用任何豁免
+	if action == "register" {
+		fmt.Printf("注册操作,不使用任何豁免,返回true\n")
+		return true, nil
+	}
+
 	// 构建豁免配置
 	globalExempts := map[string]interface{}{
 		"exempt_ips":     p.config.VerificationPolicy.ExemptIPs,

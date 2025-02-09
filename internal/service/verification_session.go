@@ -140,3 +140,25 @@ func (s *verificationSessionService) GetSessionByIdentifier(ctx context.Context,
 func (s *verificationSessionService) GetSessionByID(ctx context.Context, sessionID string) (*model.VerificationSession, error) {
 	return s.sessionRepo.GetByID(ctx, sessionID)
 }
+
+// UpdateSessionUserID 更新会话的用户ID
+func (s *verificationSessionService) UpdateSessionUserID(ctx context.Context, sessionID string, userID string) error {
+	// 获取会话
+	session, err := s.sessionRepo.GetByID(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get session: %v", err)
+	}
+	if session == nil {
+		return fmt.Errorf("session not found")
+	}
+
+	// 更新会话的userID
+	session.UserID = &userID
+
+	// 保存更新后的会话
+	if err := s.sessionRepo.Update(ctx, session); err != nil {
+		return fmt.Errorf("failed to update session: %v", err)
+	}
+
+	return nil
+}

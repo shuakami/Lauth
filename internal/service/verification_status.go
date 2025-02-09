@@ -130,7 +130,18 @@ func (s *verificationStatusService) ClearVerification(ctx context.Context, appID
 		}
 	}
 
-	// 获取并删除验证状态
+	// 删除临时会话
+	pendingSession, err := s.sessionRepo.GetActiveSession(ctx, appID, "pending")
+	if err != nil {
+		return fmt.Errorf("failed to get pending session: %v", err)
+	}
+	if pendingSession != nil {
+		if err := s.sessionRepo.Delete(ctx, pendingSession.ID); err != nil {
+			return fmt.Errorf("failed to delete pending session: %v", err)
+		}
+	}
+
+	// 获取并删除指定用户的验证状态
 	statuses, err := s.pluginStatusRepo.ListStatus(ctx, appID, userID, action)
 	if err != nil {
 		return fmt.Errorf("failed to list statuses: %v", err)
@@ -138,6 +149,17 @@ func (s *verificationStatusService) ClearVerification(ctx context.Context, appID
 	for _, status := range statuses {
 		if err := s.pluginStatusRepo.DeleteStatus(ctx, appID, userID, action, status.Plugin); err != nil {
 			return fmt.Errorf("failed to delete status: %v", err)
+		}
+	}
+
+	// 获取并删除临时验证状态
+	pendingStatuses, err := s.pluginStatusRepo.ListStatus(ctx, appID, "pending", action)
+	if err != nil {
+		return fmt.Errorf("failed to list pending statuses: %v", err)
+	}
+	for _, status := range pendingStatuses {
+		if err := s.pluginStatusRepo.DeleteStatus(ctx, appID, "pending", action, status.Plugin); err != nil {
+			return fmt.Errorf("failed to delete pending status: %v", err)
 		}
 	}
 

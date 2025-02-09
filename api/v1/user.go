@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -55,34 +56,71 @@ func toUserResponse(user *model.User, profile *model.Profile) model.UserResponse
 
 // CreateUser 创建用户
 func (h *UserHandler) CreateUser(c *gin.Context) {
+	fmt.Println("=== 开始创建用户 ===")
 	appID := c.Param("id") // 使用统一的id参数
 	var req model.CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		fmt.Println("请求参数错误:", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	user, err := h.authService.Register(c.Request.Context(), appID, &req)
+	fmt.Println("调用Register方法")
+	response, err := h.authService.Register(c.Request.Context(), appID, &req)
+	fmt.Printf("Register返回: response=%+v, err=%v\n", response, err)
+
 	if err != nil {
+		fmt.Println("处理Register错误")
 		switch err {
 		case service.ErrAppNotFound:
+			fmt.Println("应用不存在")
 			c.JSON(http.StatusNotFound, gin.H{"error": "app not found"})
 		case service.ErrUserExists:
+			fmt.Println("用户已存在")
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		case service.ErrPluginRequired:
+			fmt.Println("需要验证，返回202")
+			// 需要验证时返回202状态码和验证信息
+			c.JSON(http.StatusAccepted, gin.H{
+				"auth_status": response.AuthStatus,
+				"plugins":     response.Plugins,
+				"next_plugin": response.NextPlugin,
+				"session_id":  response.SessionID,
+			})
+			return
 		default:
+			fmt.Println("其他错误:", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
 		return
 	}
 
+	fmt.Println("开始获取用户档案")
 	// 获取用户档案
-	_, profile, err := h.userService.GetUserWithProfile(c.Request.Context(), user.ID)
+	_, profile, err := h.userService.GetUserWithProfile(c.Request.Context(), response.User.ID)
 	if err != nil && err != service.ErrProfileNotFound {
+		fmt.Println("获取用户档案失败:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusCreated, toUserResponse(user, profile))
+	fmt.Println("构建用户响应")
+	// 构建用户响应
+	userResponse := model.UserResponse{
+		ID:        response.User.ID,
+		AppID:     response.User.AppID,
+		Username:  response.User.Username,
+		Nickname:  response.User.Nickname,
+		Email:     response.User.Email,
+		Phone:     response.User.Phone,
+		Status:    response.User.Status,
+		Profile:   profile,
+		CreatedAt: response.User.CreatedAt,
+		UpdatedAt: response.User.UpdatedAt,
+	}
+
+	fmt.Println("返回创建成功响应")
+	c.JSON(http.StatusCreated, userResponse)
 }
 
 // GetUser 获取用户
