@@ -284,6 +284,9 @@ func (r *Reader) matchFilters(log *AuditLog, params QueryParams) bool {
 
 // VerifyLogFile 验证日志文件的完整性
 func (r *Reader) VerifyLogFile(filename string) (bool, error) {
+	if strings.Contains(filename, "/") || strings.Contains(filename, "\\") || strings.Contains(filename, "..") {
+		return false, fmt.Errorf("invalid file name")
+	}
 	file, err := os.Open(filepath.Join(r.baseDir, filename))
 	if err != nil {
 		return false, err
