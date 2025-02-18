@@ -65,6 +65,11 @@ func (r *Reader) ReadLogs(params QueryParams) ([]*AuditLog, error) {
 
 // readAppLogs 读取指定应用的日志
 func (r *Reader) readAppLogs(appID string, params QueryParams) ([]*AuditLog, error) {
+	// 验证 appID
+	if strings.Contains(appID, "/") || strings.Contains(appID, "\\") || strings.Contains(appID, "..") {
+		return nil, fmt.Errorf("invalid appID: %s", appID)
+	}
+
 	// 加载应用索引
 	index, err := r.loadIndex(appID)
 	if err != nil {
