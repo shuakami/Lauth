@@ -1,6 +1,10 @@
 package email
 
 import (
+	"net/mail"
+)
+
+import (
 	"crypto/tls"
 	"fmt"
 	"net"
@@ -57,6 +61,9 @@ func NewSMTPSender(config *config.SMTPConfig) (*SMTPSender, error) {
 
 // SendHTML 发送HTML邮件
 func (s *SMTPSender) SendHTML(to []string, subject string, templateName string, data interface{}) error {
+	// Sanitize the 'to' field
+	sanitizedTo := sanitizeEmails(to)
+
 	// 加载模板
 	if err := s.templates.LoadTemplate(templateName); err != nil {
 		return fmt.Errorf("failed to load template: %v", err)
@@ -69,10 +76,10 @@ func (s *SMTPSender) SendHTML(to []string, subject string, templateName string, 
 	}
 
 	// 构建邮件内容
-	message := s.buildMessage(to, subject, body, true)
+	message := s.buildMessage(sanitizedTo, subject, body, true)
 
 	// 发送邮件
-	return s.send(to, message)
+	return s.send(sanitizedTo, message)
 }
 
 // SendText 发送纯文本邮件
@@ -116,6 +123,17 @@ func (s *SMTPSender) buildMessage(to []string, subject string, body string, isHT
 	message += "\r\n" + body
 
 	return []byte(message)
+}
+
+// sanitizeEmails sanitizes a list of email addresses
+func sanitizeEmails(emails []string) []string {
+	var sanitized []string
+	for _, email := range emails {
+		if _, err := mail.ParseAddress(email); err == nil {
+			sanitized = append(sanitized, email)
+		}
+	}
+	return sanitized
 }
 
 // createSMTPConnection 创建SMTP连接
