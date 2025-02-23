@@ -123,6 +123,46 @@ type ExecutePluginRequest struct {
 	SessionID      string                 `json:"session_id"`                   // 会话ID
 }
 
+// getVerificationSession 获取验证会话
+func (h *PluginHandler) getVerificationSession(c *gin.Context, appID string, req *ExecutePluginRequest) (*model.VerificationSession, error) {
+	var session *model.VerificationSession
+	var err error
+
+	// 获取当前用户ID（如果有）
+	userID := c.GetString("user_id")
+
+	// 优先使用session_id获取会话
+	if req.SessionID != "" {
+		session, err = h.verifyService.GetSessionByID(c.Request.Context(), req.SessionID)
+	} else if userID != "" {
+		session, err = h.verifyService.GetSession(c.Request.Context(), appID, userID)
+	} else if req.Identifier != "" && req.IdentifierType != "" {
+		session, err = h.verifyService.GetSessionByIdentifier(c.Request.Context(), appID, req.Identifier, req.IdentifierType)
+	} else {
+		return nil, fmt.Errorf("either session_id, user_id or identifier is required")
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get verification session")
+	}
+	if session == nil {
+		return nil, fmt.Errorf("no active verification session")
+	}
+
+	return session, nil
+}
+
+// validatePluginAction 验证插件动作
+func (h *PluginHandler) validatePluginAction(plugin types.Plugin, action string) error {
+	metadata := plugin.GetMetadata()
+	for _, supportedAction := range metadata.Actions {
+		if supportedAction == action {
+			return nil
+		}
+	}
+	return fmt.Errorf("plugin doesn't support %s action", action)
+}
+
 // ExecutePlugin 执行插件
 func (h *PluginHandler) ExecutePlugin(c *gin.Context) {
 	appID := c.Param("app_id")
@@ -138,30 +178,10 @@ func (h *PluginHandler) ExecutePlugin(c *gin.Context) {
 		return
 	}
 
-	var session *model.VerificationSession
-	var err error
-
-	// 获取当前用户ID（如果有）
-	userID := c.GetString("user_id")
-
-	// 优先使用session_id获取会话
-	if req.SessionID != "" {
-		session, err = h.verifyService.GetSessionByID(c.Request.Context(), req.SessionID)
-	} else if userID != "" {
-		session, err = h.verifyService.GetSession(c.Request.Context(), appID, userID)
-	} else if req.Identifier != "" && req.IdentifierType != "" {
-		session, err = h.verifyService.GetSessionByIdentifier(c.Request.Context(), appID, req.Identifier, req.IdentifierType)
-	} else {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "either session_id, user_id or identifier is required"})
-		return
-	}
-
+	// 获取验证会话
+	session, err := h.getVerificationSession(c, appID, &req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get verification session"})
-		return
-	}
-	if session == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no active verification session"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -172,23 +192,14 @@ func (h *PluginHandler) ExecutePlugin(c *gin.Context) {
 		return
 	}
 
-	// 验证业务场景是否支持
-	metadata := plugin.GetMetadata()
-	actionSupported := false
-	for _, action := range metadata.Actions {
-		if action == session.Action {
-			actionSupported = true
-			break
-		}
-	}
-	if !actionSupported {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("plugin doesn't support %s action", session.Action)})
+	// 验证插件是否支持当前业务场景
+	if err := h.validatePluginAction(plugin, session.Action); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 将操作类型添加到参数中
+	// 将操作类型和会话ID添加到参数中
 	req.Params["operation"] = req.Operation
-	// 将session_id添加到参数中
 	req.Params["session_id"] = session.ID
 
 	// 执行插件

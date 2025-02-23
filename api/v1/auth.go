@@ -27,7 +27,6 @@ func (h *AuthHandler) Register(r *gin.RouterGroup) {
 	auth := r.Group("/auth")
 	{
 		auth.POST("/login", h.Login)
-		auth.POST("/login/continue", h.ContinueLogin)
 		auth.POST("/refresh", h.RefreshToken)
 		auth.POST("/logout", h.Logout)
 		auth.GET("/validate", h.ValidateToken)
@@ -291,56 +290,4 @@ func (h *AuthHandler) ValidateTokenAndRule(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, userInfo)
-}
-
-// ContinueLoginRequest 继续登录请求
-type ContinueLoginRequest struct {
-	SessionID string `json:"session_id" binding:"required"`
-}
-
-// ContinueLogin 继续登录
-func (h *AuthHandler) ContinueLogin(c *gin.Context) {
-	var req ContinueLoginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	resp, err := h.authService.ContinueLogin(c.Request.Context(), req.SessionID)
-	if err != nil {
-		switch err {
-		case service.ErrPluginRequired:
-			// 当需要插件验证时，返回验证相关信息
-			c.JSON(http.StatusAccepted, gin.H{
-				"auth_status": resp.AuthStatus,
-				"plugins":     resp.Plugins,
-				"next_plugin": resp.NextPlugin,
-				"session_id":  resp.SessionID,
-			})
-			return
-		case service.ErrUserDisabled:
-			c.JSON(http.StatusForbidden, gin.H{"error": "user is disabled"})
-		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		}
-		return
-	}
-
-	// 检查是否使用Cookie认证
-	useCookie := c.GetHeader("Authorization") == ""
-
-	if useCookie {
-		// 设置HttpOnly Cookie
-		c.SetCookie("access_token", resp.AccessToken, int(resp.ExpiresIn), "/", "", false, true)
-		c.SetCookie("refresh_token", resp.RefreshToken, int(resp.ExpiresIn)*2, "/", "", false, true)
-
-		// 返回不含token的响应
-		c.JSON(http.StatusOK, model.LoginCookieResponse{
-			User:      resp.User,
-			ExpiresIn: resp.ExpiresIn,
-		})
-	} else {
-		// 返回完整响应（包含token）
-		c.JSON(http.StatusOK, resp)
-	}
 }

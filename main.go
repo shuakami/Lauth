@@ -4,28 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
-	v1 "lauth/api/v1"
-	"lauth/internal/audit"
-	"lauth/internal/model"
-	"lauth/internal/plugin"
-	"lauth/internal/repository"
-	"lauth/internal/service"
-	"lauth/pkg/config"
-	"lauth/pkg/crypto"
-	"lauth/pkg/database"
-	"lauth/pkg/engine"
-	"lauth/pkg/middleware"
+	"lauth/internal/boot"
 	"lauth/pkg/redis"
-	"lauth/pkg/router"
 
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
 	// 加载配置
-	cfg, err := config.LoadConfig("config/config.yaml")
+	cfg, err := boot.InitConfig("config/config.yaml")
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -33,55 +21,22 @@ func main() {
 	// 设置gin模式
 	gin.SetMode(cfg.Server.Mode)
 
-	// 连接数据库
-	db, err := database.NewPostgresDB(&cfg.Database)
+	// 初始化数据库连接
+	db, err := boot.InitDB(&cfg.Database)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	log.Printf("Successfully connected to database")
-
-	// 连接MongoDB
-	mongodbConfig := &database.MongoDBConfig{
-		URI:         cfg.MongoDB.URI,
-		Database:    cfg.MongoDB.Database,
-		MaxPoolSize: cfg.MongoDB.MaxPoolSize,
-		MinPoolSize: cfg.MongoDB.MinPoolSize,
-	}
-	mongodb, err := database.NewMongoClient(mongodbConfig)
-	if err != nil {
-		log.Fatalf("Failed to connect to MongoDB: %v", err)
-	}
-	log.Printf("Successfully connected to MongoDB")
-
-	// 自动迁移数据库表
-	if err := db.AutoMigrate(
-		&model.App{},
-		&model.User{},
-		&model.Role{},
-		&model.Permission{},
-		&model.UserRole{},
-		&model.RolePermission{},
-		&model.Rule{},
-		&model.RuleCondition{},
-		&model.OAuthClient{},
-		&model.OAuthClientSecret{},
-		&model.AuthorizationCode{},
-		&model.PluginStatus{},
-		&model.PluginConfig{},
-		&model.VerificationSession{},
-		&model.PluginUserConfig{},
-		&model.PluginVerificationRecord{},
-		&model.LoginLocation{},
-	); err != nil {
-		log.Fatalf("Failed to migrate database: %v", err)
-	}
-
-	// 获取底层sqlDB以便在程序结束时关闭
 	sqlDB, err := db.DB()
 	if err != nil {
 		log.Fatalf("Failed to get underlying *sql.DB: %v", err)
 	}
 	defer sqlDB.Close()
+
+	// 初始化MongoDB连接
+	mongodb, err := boot.InitMongo(&cfg.MongoDB)
+	if err != nil {
+		log.Fatalf("Failed to connect to MongoDB: %v", err)
+	}
 	defer mongodb.Close(context.Background())
 
 	// 初始化Redis客户端
@@ -94,175 +49,31 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to connect to Redis: %v", err)
 	}
-	log.Printf("Successfully connected to Redis")
 
 	// 初始化仓储层
-	appRepo := repository.NewAppRepository(db)
-	userRepo := repository.NewUserRepository(db)
-	roleRepo := repository.NewRoleRepository(db)
-	permissionRepo := repository.NewPermissionRepository(db)
-	ruleRepo := repository.NewRuleRepository(db)
-	oauthClientRepo := repository.NewOAuthClientRepository(db)
-	oauthClientSecretRepo := repository.NewOAuthClientSecretRepository(db)
-	authCodeRepo := repository.NewAuthorizationCodeRepository(db)
-	pluginStatusRepo := repository.NewPluginStatusRepository(db)
-	pluginConfigRepo := repository.NewPluginConfigRepository(db)
-	verificationSessionRepo := repository.NewVerificationSessionRepository(db)
-	pluginUserConfigRepo := repository.NewPluginUserConfigRepository(db)
-	pluginVerificationRecordRepo := repository.NewPluginVerificationRecordRepository(db)
-	loginLocationRepo := repository.NewLoginLocationRepository(db)
-
-	// 初始化MongoDB仓储层
-	profileRepo := repository.NewProfileRepository(mongodb)
-	fileRepo := repository.NewFileRepository(mongodb)
-
-	// 初始化IP地理位置服务
-	ipLocationService := service.NewIPLocationService("data/ip2region/ip2region.xdb")
-
-	// 初始化登录位置服务
-	loginLocationService := service.NewLoginLocationService(loginLocationRepo, ipLocationService)
-
-	// 初始化Token服务
-	tokenService := service.NewTokenService(
-		redisClient,
-		cfg.JWT.Secret,
-		time.Duration(cfg.JWT.AccessTokenExpire)*time.Hour,
-		time.Duration(cfg.JWT.RefreshTokenExpire)*time.Second,
-	)
-
-	// 初始化规则引擎
-	ruleParser := engine.NewParser()
-	ruleExecutor := engine.NewExecutor()
-	ruleCache := engine.NewCache(redisClient)
-	ruleEngine := engine.NewEngine(ruleParser, ruleExecutor, ruleCache, ruleRepo)
-
-	// 初始化插件管理器
-	pluginManager := plugin.NewManager(
-		pluginConfigRepo,
-		pluginUserConfigRepo,
-		pluginVerificationRecordRepo,
-		loginLocationService,
-		&cfg.SMTP,
-	)
-
-	// 加载插件配置
-	if err := pluginManager.InitPlugins(context.Background()); err != nil {
-		log.Fatalf("Failed to init plugins: %v", err)
-	}
+	repos := boot.InitRepositories(db, mongodb)
 
 	// 初始化服务层
-	appService := service.NewAppService(appRepo)
-	fileService := service.NewFileService(fileRepo)
-	profileService := service.NewProfileService(profileRepo, fileRepo)
-	userService := service.NewUserService(userRepo, appRepo, profileService)
-	ruleService := service.NewRuleService(ruleRepo, ruleEngine)
-	verificationService := service.NewVerificationService(pluginManager, pluginStatusRepo, verificationSessionRepo)
-	authService := service.NewAuthService(userRepo, appRepo, tokenService, ruleService, verificationService, profileService, loginLocationService)
-	roleService := service.NewRoleService(roleRepo, permissionRepo)
-	permissionService := service.NewPermissionService(permissionRepo, roleRepo)
-	oauthClientService := service.NewOAuthClientService(oauthClientRepo, oauthClientSecretRepo)
-
-	// 初始化OIDC服务
-	privateKey, publicKey, err := crypto.LoadRSAKeys(cfg.OIDC.PrivateKeyPath, cfg.OIDC.PublicKeyPath)
+	services, err := boot.InitServices(cfg, repos, redisClient)
 	if err != nil {
-		log.Fatalf("Failed to load RSA keys: %v", err)
-	}
-	oidcService := service.NewOIDCService(userRepo, tokenService, cfg, privateKey, publicKey)
-
-	// 初始化授权服务
-	authorizationService := service.NewAuthorizationService(
-		oauthClientRepo,
-		oauthClientSecretRepo,
-		authCodeRepo,
-		userRepo,
-		tokenService,
-		oidcService,
-	)
-
-	// 初始化审计日志
-	hashChain := audit.NewHashChain()
-	auditWriter, err := audit.NewWriter(audit.WriterConfig{
-		BaseDir:    cfg.Audit.LogDir,
-		RotateSize: cfg.Audit.RotationSize,
-		HashChain:  hashChain,
-	})
-	if err != nil {
-		log.Fatalf("Failed to create audit writer: %v", err)
+		log.Fatalf("Failed to init services: %v", err)
 	}
 
-	// 初始化WebSocket服务器
-	wsServer := audit.NewWebSocketServer(&audit.WebSocketConfig{
-		PingInterval:   time.Duration(cfg.Audit.WebSocket.PingInterval) * time.Second,
-		WriteWait:      time.Duration(cfg.Audit.WebSocket.WriteWait) * time.Second,
-		ReadWait:       time.Duration(cfg.Audit.WebSocket.ReadWait) * time.Second,
-		MaxMessageSize: int64(cfg.Audit.WebSocket.MaxMessageSize),
-	})
-	go wsServer.Start()
+	// 初始化审计组件
+	auditComponents, err := boot.InitAudit(cfg, services.RoleService)
+	if err != nil {
+		log.Fatalf("Failed to init audit components: %v", err)
+	}
 
-	// 初始化审计日志读取器
-	auditReader := audit.NewReader(cfg.Audit.LogDir)
+	// 启动WebSocket服务器
+	go auditComponents.WebSocketServer.Start()
 
-	// 初始化认证中间件
-	authMiddleware := middleware.NewAuthMiddleware(tokenService, cfg.Server.AuthEnabled)
+	// 初始化HTTP处理器
+	handlers := boot.InitHandlers(services, repos, auditComponents, cfg)
 
-	// 初始化审计中间件
-	auditMiddleware := middleware.NewAuditMiddleware(auditWriter, wsServer, ipLocationService)
-
-	// 初始化审计日志权限中间件
-	auditPermissionMiddleware := audit.NewAuditPermissionMiddleware(roleService)
-
-	// 初始化处理器
-	appHandler := v1.NewAppHandler(appService)
-	userHandler := v1.NewUserHandler(userService, authService)
-	authHandler := v1.NewAuthHandler(authService)
-	roleHandler := v1.NewRoleHandler(roleService)
-	permissionHandler := v1.NewPermissionHandler(permissionService)
-	ruleHandler := v1.NewRuleHandler(ruleService)
-	oauthClientHandler := v1.NewOAuthClientHandler(oauthClientService)
-	authorizationHandler := v1.NewAuthorizationHandler(authorizationService)
-	profileHandler := v1.NewProfileHandler(profileService)
-	fileHandler := v1.NewFileHandler(fileService)
-	oidcHandler := v1.NewOIDCHandler(oidcService, tokenService)
-	auditHandler := v1.NewAuditHandler(auditReader, wsServer)
-	pluginHandler := v1.NewPluginHandler(
-		pluginManager,
-		verificationService,
-		pluginUserConfigRepo,
-		pluginVerificationRecordRepo,
-		&cfg.SMTP,
-	)
-	loginLocationHandler := v1.NewLoginLocationHandler(loginLocationService)
-
-	// 初始化gin引擎
+	// 初始化gin引擎和路由
 	r := gin.Default()
-
-	// 添加中间件
-	r.Use(middleware.CORSMiddleware())
-	r.Use(auditMiddleware.Handle())
-
-	// 初始化路由管理器
-	router := router.NewRouter(
-		r,
-		authMiddleware,
-		authHandler,
-		appHandler,
-		userHandler,
-		permissionHandler,
-		roleHandler,
-		ruleHandler,
-		oauthClientHandler,
-		authorizationHandler,
-		profileHandler,
-		fileHandler,
-		oidcHandler,
-		auditHandler,
-		pluginHandler,
-		auditPermissionMiddleware,
-		loginLocationHandler,
-	)
-
-	// 注册所有路由
-	router.RegisterRoutes()
+	_ = boot.InitRouter(r, handlers, services.TokenService, services.IPLocationService, auditComponents, cfg)
 
 	// 启动服务器
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)

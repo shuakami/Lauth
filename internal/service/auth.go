@@ -23,9 +23,6 @@ type AuthService interface {
 	// Login 用户登录
 	Login(ctx context.Context, appID string, req *model.LoginRequest) (*model.ExtendedLoginResponse, error)
 
-	// ContinueLogin 继续登录（通过会话ID）
-	ContinueLogin(ctx context.Context, sessionID string) (*model.ExtendedLoginResponse, error)
-
 	// RefreshToken 刷新访问令牌
 	RefreshToken(ctx context.Context, refreshToken string) (*model.ExtendedLoginResponse, error)
 
@@ -76,11 +73,6 @@ func (s *authService) Register(ctx context.Context, appID string, req *model.Cre
 // Login 用户登录
 func (s *authService) Login(ctx context.Context, appID string, req *model.LoginRequest) (*model.ExtendedLoginResponse, error) {
 	return s.accountService.Login(ctx, appID, req)
-}
-
-// ContinueLogin 继续登录（通过会话ID）
-func (s *authService) ContinueLogin(ctx context.Context, sessionID string) (*model.ExtendedLoginResponse, error) {
-	return s.accountService.ContinueLogin(ctx, sessionID)
 }
 
 // RefreshToken 刷新访问令牌

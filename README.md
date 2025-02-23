@@ -170,7 +170,6 @@ go run main.go
 ### Authentication Endpoints
 
 - `POST /api/v1/auth/login` - User login
-- `POST /api/v1/auth/login/continue` - Continue login process
 - `POST /api/v1/auth/refresh` - Refresh access token
 - `POST /api/v1/auth/logout` - User logout
 - `GET /api/v1/auth/validate` - Validate token

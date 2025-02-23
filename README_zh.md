@@ -170,7 +170,6 @@ go run main.go
 ### 认证接口
 
 - `POST /api/v1/auth/login` - 用户登录
-- `POST /api/v1/auth/login/continue` - 继续登录流程
 - `POST /api/v1/auth/refresh` - 刷新访问令牌
 - `POST /api/v1/auth/logout` - 用户登出
 - `GET /api/v1/auth/validate` - 验证令牌

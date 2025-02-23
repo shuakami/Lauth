@@ -160,9 +160,43 @@ func loadModuleName(stats *ProjectStats) {
 // collectFiles 遍历目录收集所有需要处理的文件
 func collectFiles(root string) ([]string, error) {
 	var fileList []string
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+
+	// 获取当前执行文件的绝对路径
+	selfPath, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get executable path: %v", err)
+	}
+
+	// 转换为规范化的绝对路径
+	selfPath, err = filepath.EvalSymlinks(selfPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to eval symlinks: %v", err)
+	}
+
+	err = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+
+		// 获取相对于根目录的路径
+		relPath, err := filepath.Rel(root, path)
+		if err == nil {
+			// 跳过 tools/codestat 目录
+			if strings.HasPrefix(relPath, "tools/codestat") || strings.HasPrefix(relPath, "tools\\codestat") {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+		}
+
+		// 跳过自身文件
+		absPath, err := filepath.Abs(path)
+		if err == nil {
+			absPath, err = filepath.EvalSymlinks(absPath)
+			if err == nil && absPath == selfPath {
+				return nil
+			}
 		}
 
 		// 跳过隐藏文件和目录
@@ -373,13 +407,12 @@ func countFunctionLines(fn *ast.FuncDecl, fset *token.FileSet) int {
 func calculateComplexity(fn *ast.FuncDecl) int {
 	complexity := 1 // 基础复杂度
 	ast.Inspect(fn, func(n ast.Node) bool {
-		switch n.(type) {
+		switch node := n.(type) {
 		case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.CaseClause,
 			*ast.CommClause:
 			complexity++
 		case *ast.BinaryExpr:
-			be := n.(*ast.BinaryExpr)
-			if be.Op.String() == "&&" || be.Op.String() == "||" {
+			if node.Op.String() == "&&" || node.Op.String() == "||" {
 				complexity++
 			}
 		}
@@ -842,9 +875,9 @@ func printFunctionComplexityAnalysis(stats *ProjectStats) {
 func printTopNComplexFunctions(stats *ProjectStats, topN int) {
 	fmt.Printf("\n=== Top %d Complex Functions ===\n", topN)
 	var allFns []struct {
-		File   string
-		Pkg    string
-		Func   FunctionInfo
+		File string
+		Pkg  string
+		Func FunctionInfo
 	}
 	for path, fs := range stats.Files {
 		for _, fn := range fs.Functions {
@@ -885,9 +918,9 @@ func printTopNComplexFunctions(stats *ProjectStats, topN int) {
 func printTopNFunctionByLines(stats *ProjectStats, topN int) {
 	fmt.Printf("\n=== Top %d Functions by Lines ===\n", topN)
 	var allFns []struct {
-		File   string
-		Pkg    string
-		Func   FunctionInfo
+		File string
+		Pkg  string
+		Func FunctionInfo
 	}
 	for path, fs := range stats.Files {
 		for _, fn := range fs.Functions {

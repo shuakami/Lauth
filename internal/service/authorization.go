@@ -223,47 +223,49 @@ func (s *authorizationService) IssueToken(ctx context.Context, req *model.TokenR
 	}
 }
 
-// handleAuthorizationCodeGrant 处理授权码授权类型
-func (s *authorizationService) handleAuthorizationCodeGrant(ctx context.Context, req *model.TokenRequest, client *model.OAuthClient) (*model.TokenResponse, error) {
-	// 打印原始授权码
-	log.Printf("Received authorization code: %s", req.Code)
-
+// processAuthorizationCode 处理和验证授权码
+func (s *authorizationService) processAuthorizationCode(ctx context.Context, code string) (*model.AuthorizationCode, error) {
 	// URL解码授权码
-	code, err := url.QueryUnescape(req.Code)
+	decodedCode, err := url.QueryUnescape(code)
 	if err != nil {
 		log.Printf("Failed to URL decode authorization code: %v", err)
 		return nil, fmt.Errorf("failed to decode authorization code: %w", err)
 	}
-	log.Printf("URL decoded authorization code: %s", code)
+	log.Printf("URL decoded authorization code: %s", decodedCode)
 
 	// 如果授权码末尾没有=，尝试添加
-	if !strings.HasSuffix(code, "=") {
-		code = code + "="
-		log.Printf("Added padding to authorization code: %s", code)
+	if !strings.HasSuffix(decodedCode, "=") {
+		decodedCode = decodedCode + "="
+		log.Printf("Added padding to authorization code: %s", decodedCode)
 	}
 
 	// 验证授权码
-	authCode, err := s.codeRepo.GetByCode(ctx, code)
+	authCode, err := s.codeRepo.GetByCode(ctx, decodedCode)
 	if err != nil {
 		log.Printf("Error getting authorization code: %v", err)
 		return nil, fmt.Errorf("failed to get authorization code: %w", err)
 	}
 	if authCode == nil {
-		log.Printf("Authorization code not found: %s", code)
+		log.Printf("Authorization code not found: %s", decodedCode)
 		return nil, ErrInvalidGrant
 	}
 
+	return authCode, nil
+}
+
+// validateAuthCodeRequest 验证授权码请求
+func (s *authorizationService) validateAuthCodeRequest(authCode *model.AuthorizationCode, req *model.TokenRequest, client *model.OAuthClient) error {
 	// 验证客户端ID
 	if authCode.ClientID != client.ClientID {
 		log.Printf("Client ID mismatch: expected %s, got %s", authCode.ClientID, client.ClientID)
-		return nil, ErrInvalidGrant
+		return ErrInvalidGrant
 	}
 
 	// 提取基本的重定向URI（去除查询参数）
 	requestedURI, err := url.Parse(req.RedirectURI)
 	if err != nil {
 		log.Printf("Failed to parse request redirect URI: %v", err)
-		return nil, fmt.Errorf("failed to parse redirect uri: %w", err)
+		return fmt.Errorf("failed to parse redirect uri: %w", err)
 	}
 	requestedURI.RawQuery = ""
 	actualURI := requestedURI.String()
@@ -271,22 +273,27 @@ func (s *authorizationService) handleAuthorizationCodeGrant(ctx context.Context,
 	storedURI, err := url.Parse(authCode.RedirectURI)
 	if err != nil {
 		log.Printf("Failed to parse stored redirect URI: %v", err)
-		return nil, fmt.Errorf("failed to parse redirect uri: %w", err)
+		return fmt.Errorf("failed to parse redirect uri: %w", err)
 	}
 	storedURI.RawQuery = ""
 	expectedURI := storedURI.String()
 
 	if expectedURI != actualURI {
 		log.Printf("Redirect URI mismatch: expected %s, got %s", expectedURI, actualURI)
-		return nil, ErrInvalidGrant
+		return ErrInvalidGrant
 	}
 
 	// 验证过期时间
 	if authCode.ExpiresAt.Before(time.Now()) {
 		log.Printf("Authorization code expired at %v", authCode.ExpiresAt)
-		return nil, ErrInvalidGrant
+		return ErrInvalidGrant
 	}
 
+	return nil
+}
+
+// generateTokenResponse 生成令牌响应
+func (s *authorizationService) generateTokenResponse(ctx context.Context, authCode *model.AuthorizationCode, client *model.OAuthClient, req *model.TokenRequest) (*model.TokenResponse, error) {
 	// 生成访问令牌和刷新令牌
 	user := &model.User{
 		ID:    authCode.UserID,
@@ -296,11 +303,6 @@ func (s *authorizationService) handleAuthorizationCodeGrant(ctx context.Context,
 	if err != nil {
 		log.Printf("Failed to generate token pair: %v", err)
 		return nil, fmt.Errorf("failed to generate token pair: %w", err)
-	}
-
-	// 删除已使用的授权码
-	if err := s.codeRepo.Delete(ctx, authCode.ID); err != nil {
-		log.Printf("Failed to delete authorization code: %v", err)
 	}
 
 	response := &model.TokenResponse{
@@ -330,6 +332,36 @@ func (s *authorizationService) handleAuthorizationCodeGrant(ctx context.Context,
 			response.IDToken = idToken
 			break
 		}
+	}
+
+	return response, nil
+}
+
+// handleAuthorizationCodeGrant 处理授权码授权类型
+func (s *authorizationService) handleAuthorizationCodeGrant(ctx context.Context, req *model.TokenRequest, client *model.OAuthClient) (*model.TokenResponse, error) {
+	// 打印原始授权码
+	log.Printf("Received authorization code: %s", req.Code)
+
+	// 处理和验证授权码
+	authCode, err := s.processAuthorizationCode(ctx, req.Code)
+	if err != nil {
+		return nil, err
+	}
+
+	// 验证请求
+	if err := s.validateAuthCodeRequest(authCode, req, client); err != nil {
+		return nil, err
+	}
+
+	// 生成令牌响应
+	response, err := s.generateTokenResponse(ctx, authCode, client, req)
+	if err != nil {
+		return nil, err
+	}
+
+	// 删除已使用的授权码
+	if err := s.codeRepo.Delete(ctx, authCode.ID); err != nil {
+		log.Printf("Failed to delete authorization code: %v", err)
 	}
 
 	return response, nil

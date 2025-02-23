@@ -94,6 +94,56 @@ func RequiredValidator(fields ...string) ValidateFunc {
 	}
 }
 
+// validateType 验证具体类型
+func validateType(field string, value interface{}, expectedType interface{}) error {
+	switch expectedType.(type) {
+	case string:
+		if _, ok := value.(string); !ok {
+			return newTypeError(field, "string")
+		}
+	case int:
+		if err := validateIntType(field, value); err != nil {
+			return err
+		}
+	case bool:
+		if _, ok := value.(bool); !ok {
+			return newTypeError(field, "boolean")
+		}
+	case []interface{}:
+		if _, ok := value.([]interface{}); !ok {
+			return newTypeError(field, "array")
+		}
+	case map[string]interface{}:
+		if _, ok := value.(map[string]interface{}); !ok {
+			return newTypeError(field, "object")
+		}
+	}
+	return nil
+}
+
+// validateIntType 验证整数类型
+func validateIntType(field string, value interface{}) error {
+	switch v := value.(type) {
+	case int:
+		return nil
+	case float64:
+		if float64(int(v)) == v {
+			return nil
+		}
+		return newTypeError(field, "integer")
+	default:
+		return newTypeError(field, "integer")
+	}
+}
+
+// newTypeError 创建类型错误
+func newTypeError(field, expectedType string) *ConfigValidationError {
+	return &ConfigValidationError{
+		Field: field,
+		Msg:   fmt.Sprintf("field must be a %s", expectedType),
+	}
+}
+
 // TypeValidator 类型验证器
 func TypeValidator(field string, expectedType interface{}) ValidateFunc {
 	return func(config map[string]interface{}) error {
@@ -102,59 +152,18 @@ func TypeValidator(field string, expectedType interface{}) ValidateFunc {
 			return nil
 		}
 
-		fmt.Printf("Validating field %s: value=%v (type=%T), expected type=%T\n", field, value, value, expectedType)
+		// 验证类型
+		if err := validateType(field, value, expectedType); err != nil {
+			return err
+		}
 
-		switch expectedType.(type) {
-		case string:
-			if _, ok := value.(string); !ok {
-				return &ConfigValidationError{
-					Field: field,
-					Msg:   "field must be a string",
-				}
-			}
-		case int:
-			switch v := value.(type) {
-			case int:
-				// OK
-			case float64:
-				// 尝试转换float64到int
-				if float64(int(v)) == v {
-					// 是整数
-					config[field] = int(v) // 更新为int类型
-				} else {
-					return &ConfigValidationError{
-						Field: field,
-						Msg:   "field must be an integer",
-					}
-				}
-			default:
-				return &ConfigValidationError{
-					Field: field,
-					Msg:   "field must be an integer",
-				}
-			}
-		case bool:
-			if _, ok := value.(bool); !ok {
-				return &ConfigValidationError{
-					Field: field,
-					Msg:   "field must be a boolean",
-				}
-			}
-		case []interface{}:
-			if _, ok := value.([]interface{}); !ok {
-				return &ConfigValidationError{
-					Field: field,
-					Msg:   "field must be an array",
-				}
-			}
-		case map[string]interface{}:
-			if _, ok := value.(map[string]interface{}); !ok {
-				return &ConfigValidationError{
-					Field: field,
-					Msg:   "field must be an object",
-				}
+		// 如果是float64转int的情况，更新配置
+		if expectedType == (int(0)) {
+			if v, ok := value.(float64); ok && float64(int(v)) == v {
+				config[field] = int(v)
 			}
 		}
+
 		return nil
 	}
 }

@@ -85,24 +85,8 @@ func (s *profileService) CreateProfile(ctx context.Context, userID, appID string
 	return profile, nil
 }
 
-// UpdateProfile 更新用户档案
-func (s *profileService) UpdateProfile(ctx context.Context, id string, req *model.UpdateProfileRequest) (*model.Profile, error) {
-	// 解析ObjectID
-	objectID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return nil, err
-	}
-
-	// 获取现有档案
-	profile, err := s.profileRepo.GetByID(ctx, objectID)
-	if err != nil {
-		return nil, err
-	}
-	if profile == nil {
-		return nil, ErrProfileNotFound
-	}
-
-	// 更新字段
+// updateProfileFields 更新档案字段
+func (s *profileService) updateProfileFields(profile *model.Profile, req *model.UpdateProfileRequest) {
 	if req.Avatar != nil {
 		profile.Avatar = *req.Avatar
 	}
@@ -133,6 +117,36 @@ func (s *profileService) UpdateProfile(ctx context.Context, id string, req *mode
 	if req.CustomData != nil {
 		profile.CustomData = req.CustomData
 	}
+}
+
+// getProfileByObjectID 通过ObjectID获取档案
+func (s *profileService) getProfileByObjectID(ctx context.Context, id string) (*model.Profile, primitive.ObjectID, error) {
+	objectID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, objectID, err
+	}
+
+	profile, err := s.profileRepo.GetByID(ctx, objectID)
+	if err != nil {
+		return nil, objectID, err
+	}
+	if profile == nil {
+		return nil, objectID, ErrProfileNotFound
+	}
+
+	return profile, objectID, nil
+}
+
+// UpdateProfile 更新用户档案
+func (s *profileService) UpdateProfile(ctx context.Context, id string, req *model.UpdateProfileRequest) (*model.Profile, error) {
+	// 获取并验证档案
+	profile, objectID, err := s.getProfileByObjectID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// 更新字段
+	s.updateProfileFields(profile, req)
 
 	// 更新档案
 	if err := s.profileRepo.Update(ctx, objectID, profile); err != nil {

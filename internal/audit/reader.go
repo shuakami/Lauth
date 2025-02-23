@@ -63,11 +63,83 @@ func (r *Reader) ReadLogs(params QueryParams) ([]*AuditLog, error) {
 	return allLogs[params.Offset:end], nil
 }
 
+// validateAppID 验证应用ID
+func (r *Reader) validateAppID(appID string) error {
+	if strings.Contains(appID, "/") || strings.Contains(appID, "\\") || strings.Contains(appID, "..") {
+		return fmt.Errorf("invalid appID: %s", appID)
+	}
+	return nil
+}
+
+// readHistoricalLogs 读取历史日志
+func (r *Reader) readHistoricalLogs(index *LogIndex, params QueryParams) ([]*AuditLog, error) {
+	var logs []*AuditLog
+	for _, fileInfo := range index.Files {
+		if r.isFileRelevant(fileInfo, params) {
+			fileLogs, err := r.readFile(filepath.Join(r.baseDir, fileInfo.Path), params)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read file %s: %v", fileInfo.Path, err)
+			}
+			logs = append(logs, fileLogs...)
+		}
+	}
+	return logs, nil
+}
+
+// scanCurrentDayLogs 扫描当前日期的日志
+func (r *Reader) scanCurrentDayLogs(appID string, params QueryParams) ([]*AuditLog, error) {
+	now := time.Now()
+	currentDayPath := filepath.Join(
+		r.baseDir,
+		appID,
+		fmt.Sprintf("%04d", now.Year()),
+		fmt.Sprintf("%02d", now.Month()),
+		fmt.Sprintf("%02d", now.Day()),
+	)
+
+	if _, err := os.Stat(currentDayPath); err != nil {
+		if os.IsNotExist(err) {
+			return []*AuditLog{}, nil
+		}
+		return nil, fmt.Errorf("failed to access current day directory: %v", err)
+	}
+
+	files, err := os.ReadDir(currentDayPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read current day directory: %v", err)
+	}
+
+	var logs []*AuditLog
+	for _, file := range files {
+		if !file.IsDir() && strings.HasPrefix(file.Name(), "audit-") {
+			filePath := filepath.Join(currentDayPath, file.Name())
+			fileLogs, err := r.readFile(filePath, params)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read file %s: %v", file.Name(), err)
+			}
+			logs = append(logs, fileLogs...)
+		}
+	}
+	return logs, nil
+}
+
+// mergeSortLogs 合并并排序日志
+func (r *Reader) mergeSortLogs(logs ...[]*AuditLog) []*AuditLog {
+	var merged []*AuditLog
+	for _, logSet := range logs {
+		merged = append(merged, logSet...)
+	}
+	sort.Slice(merged, func(i, j int) bool {
+		return merged[i].Timestamp.Before(merged[j].Timestamp)
+	})
+	return merged
+}
+
 // readAppLogs 读取指定应用的日志
 func (r *Reader) readAppLogs(appID string, params QueryParams) ([]*AuditLog, error) {
-	// 验证 appID
-	if strings.Contains(appID, "/") || strings.Contains(appID, "\\") || strings.Contains(appID, "..") {
-		return nil, fmt.Errorf("invalid appID: %s", appID)
+	// 验证应用ID
+	if err := r.validateAppID(appID); err != nil {
+		return nil, err
 	}
 
 	// 加载应用索引
@@ -81,55 +153,20 @@ func (r *Reader) readAppLogs(appID string, params QueryParams) ([]*AuditLog, err
 		return []*AuditLog{}, nil
 	}
 
-	var logs []*AuditLog
-
-	// 首先读取索引中的历史文件
-	for _, fileInfo := range index.Files {
-		if r.isFileRelevant(fileInfo, params) {
-			fileLogs, err := r.readFile(filepath.Join(r.baseDir, fileInfo.Path), params)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read file %s: %v", fileInfo.Path, err)
-			}
-			logs = append(logs, fileLogs...)
-		}
+	// 读取历史日志
+	historicalLogs, err := r.readHistoricalLogs(index, params)
+	if err != nil {
+		return nil, err
 	}
 
-	// 扫描当前日期目录下的所有日志文件
-	now := time.Now()
-	currentDayPath := filepath.Join(
-		r.baseDir,
-		appID,
-		fmt.Sprintf("%04d", now.Year()),
-		fmt.Sprintf("%02d", now.Month()),
-		fmt.Sprintf("%02d", now.Day()),
-	)
-
-	if _, err := os.Stat(currentDayPath); err == nil {
-		files, err := os.ReadDir(currentDayPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read current day directory: %v", err)
-		}
-
-		for _, file := range files {
-			if !file.IsDir() && strings.HasPrefix(file.Name(), "audit-") {
-				filePath := filepath.Join(currentDayPath, file.Name())
-				fileLogs, err := r.readFile(filePath, params)
-				if err != nil {
-					return nil, fmt.Errorf("failed to read file %s: %v", file.Name(), err)
-				}
-				logs = append(logs, fileLogs...)
-			}
-		}
-	} else {
-		fmt.Printf("Current day directory does not exist: %v\n", err)
+	// 扫描当前日期的日志
+	currentLogs, err := r.scanCurrentDayLogs(appID, params)
+	if err != nil {
+		return nil, err
 	}
 
-	// 按时间戳排序
-	sort.Slice(logs, func(i, j int) bool {
-		return logs[i].Timestamp.Before(logs[j].Timestamp)
-	})
-
-	return logs, nil
+	// 合并并排序所有日志
+	return r.mergeSortLogs(historicalLogs, currentLogs), nil
 }
 
 // loadIndex 加载应用索引
@@ -240,30 +277,32 @@ func (r *Reader) readFile(filename string, params QueryParams) ([]*AuditLog, err
 	return logs, nil
 }
 
-// matchFilters 检查日志是否匹配过滤条件
-func (r *Reader) matchFilters(log *AuditLog, params QueryParams) bool {
-	// 检查时间范围
+// checkTimeRange 检查时间范围
+func (r *Reader) checkTimeRange(log *AuditLog, params QueryParams) bool {
 	if params.StartTime != nil && log.Timestamp.Before(*params.StartTime) {
 		return false
 	}
 	if params.EndTime != nil && log.Timestamp.After(*params.EndTime) {
 		return false
 	}
+	return true
+}
 
-	// 检查事件类型
-	if len(params.EventTypes) > 0 {
-		matched := false
-		for _, et := range params.EventTypes {
-			if log.EventType == et {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			return false
+// checkEventType 检查事件类型
+func (r *Reader) checkEventType(log *AuditLog, params QueryParams) bool {
+	if len(params.EventTypes) == 0 {
+		return true
+	}
+	for _, et := range params.EventTypes {
+		if log.EventType == et {
+			return true
 		}
 	}
+	return false
+}
 
+// checkBasicFields 检查基本字段
+func (r *Reader) checkBasicFields(log *AuditLog, params QueryParams) bool {
 	// 检查用户ID
 	if params.UserID != "" && log.UserID != params.UserID {
 		return false
@@ -285,6 +324,14 @@ func (r *Reader) matchFilters(log *AuditLog, params QueryParams) bool {
 	}
 
 	return true
+}
+
+// matchFilters 检查日志是否匹配过滤条件
+func (r *Reader) matchFilters(log *AuditLog, params QueryParams) bool {
+	// 按最可能过滤的条件顺序检查
+	return r.checkTimeRange(log, params) &&
+		r.checkEventType(log, params) &&
+		r.checkBasicFields(log, params)
 }
 
 // VerifyLogFile 验证日志文件的完整性

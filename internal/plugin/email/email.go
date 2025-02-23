@@ -247,21 +247,83 @@ type emailHooks struct {
 	plugin *EmailPlugin
 }
 
-// OnLoad 加载配置
-func (h *emailHooks) OnLoad(config map[string]interface{}) error {
-	// 解析配置
+// parseVerificationPolicy 解析验证策略配置
+func parseVerificationPolicy(policyConfig map[string]interface{}) (*VerificationPolicy, error) {
+	policy := &VerificationPolicy{
+		VerifyInterval: 24 * time.Hour, // 默认24小时
+	}
+
+	// 读取是否总是验证
+	if alwaysVerify, ok := policyConfig["always_verify"].(bool); ok {
+		policy.AlwaysVerify = alwaysVerify
+	}
+
+	// 读取验证间隔
+	if interval, ok := policyConfig["verify_interval"].(string); ok {
+		duration, err := time.ParseDuration(interval)
+		if err != nil {
+			return nil, fmt.Errorf("invalid verify_interval format: %v", err)
+		}
+		policy.VerifyInterval = duration
+	}
+
+	// 读取豁免IP列表
+	if ips, ok := policyConfig["exempt_ips"].([]interface{}); ok {
+		for _, ip := range ips {
+			if ipStr, ok := ip.(string); ok {
+				policy.ExemptIPs = append(policy.ExemptIPs, ipStr)
+			}
+		}
+	}
+
+	// 读取豁免设备列表
+	if devices, ok := policyConfig["exempt_devices"].([]interface{}); ok {
+		for _, device := range devices {
+			if deviceStr, ok := device.(string); ok {
+				policy.ExemptDevices = append(policy.ExemptDevices, deviceStr)
+			}
+		}
+	}
+
+	return policy, nil
+}
+
+// parseLinkConfig 解析链接配置
+func parseLinkConfig(linkConfig map[string]interface{}) (*types.LinkConfig, error) {
+	config := &types.LinkConfig{
+		BaseURL:     "http://localhost:8080/verify", // 默认验证URL
+		TokenLength: 32,                             // 默认token长度
+		ExpireTime:  30 * time.Minute,               // 默认30分钟过期
+	}
+
+	// 读取基础URL
+	if baseURL, ok := linkConfig["base_url"].(string); ok {
+		config.BaseURL = baseURL
+	}
+
+	// 读取Token长度
+	if tokenLength, ok := linkConfig["token_length"].(int); ok {
+		config.TokenLength = tokenLength
+	}
+
+	// 读取过期时间
+	if expireTime, ok := linkConfig["expire_time"].(string); ok {
+		duration, err := time.ParseDuration(expireTime)
+		if err != nil {
+			return nil, fmt.Errorf("invalid link expire_time format: %v", err)
+		}
+		config.ExpireTime = duration
+	}
+
+	return config, nil
+}
+
+// parseEmailConfig 解析邮件配置
+func parseEmailConfig(config map[string]interface{}) (*EmailConfig, error) {
 	cfg := &EmailConfig{
 		CodeLength:       6,                    // 验证码长度
 		ExpireTime:       5 * time.Minute,      // 验证码过期时间
 		VerificationMode: VerificationModeCode, // 默认使用验证码模式
-		VerificationPolicy: VerificationPolicy{
-			VerifyInterval: 24 * time.Hour, // 两次验证的最小间隔
-		},
-		LinkConfig: &types.LinkConfig{
-			BaseURL:     "http://localhost:8080/verify", // 默认验证URL
-			TokenLength: 32,                             // 默认token长度
-			ExpireTime:  30 * time.Minute,               // 默认30分钟过期
-		},
 	}
 
 	// 读取验证码长度
@@ -273,66 +335,51 @@ func (h *emailHooks) OnLoad(config map[string]interface{}) error {
 	if expireTime, ok := config["expire_time"].(string); ok {
 		duration, err := time.ParseDuration(expireTime)
 		if err != nil {
-			return fmt.Errorf("invalid expire_time format: %v", err)
+			return nil, fmt.Errorf("invalid expire_time format: %v", err)
 		}
 		cfg.ExpireTime = duration
 	}
 
 	// 读取验证策略
 	if policyConfig, ok := config["verification_policy"].(map[string]interface{}); ok {
-		if alwaysVerify, ok := policyConfig["always_verify"].(bool); ok {
-			cfg.VerificationPolicy.AlwaysVerify = alwaysVerify
+		policy, err := parseVerificationPolicy(policyConfig)
+		if err != nil {
+			return nil, err
 		}
-
-		if verifyInterval, ok := policyConfig["verify_interval"].(string); ok {
-			duration, err := time.ParseDuration(verifyInterval)
-			if err != nil {
-				return fmt.Errorf("invalid verify_interval format: %v", err)
-			}
-			cfg.VerificationPolicy.VerifyInterval = duration
-		}
-
-		if exemptIPs, ok := policyConfig["exempt_ips"].([]interface{}); ok {
-			fmt.Printf("exempt_ips: %+v\n", exemptIPs)
-			for _, ip := range exemptIPs {
-				if ipStr, ok := ip.(string); ok {
-					cfg.VerificationPolicy.ExemptIPs = append(cfg.VerificationPolicy.ExemptIPs, ipStr)
-				}
-			}
-		}
-
-		if exemptDevices, ok := policyConfig["exempt_devices"].([]interface{}); ok {
-			fmt.Printf("exempt_devices: %+v\n", exemptDevices)
-			for _, device := range exemptDevices {
-				if deviceStr, ok := device.(string); ok {
-					cfg.VerificationPolicy.ExemptDevices = append(cfg.VerificationPolicy.ExemptDevices, deviceStr)
-				}
-			}
-		}
+		cfg.VerificationPolicy = *policy
 	}
 
 	// 读取验证模式
 	if mode, ok := config["verification_mode"].(string); ok {
-		cfg.VerificationMode = VerificationMode(mode)
+		switch VerificationMode(mode) {
+		case VerificationModeCode, VerificationModeLink:
+			cfg.VerificationMode = VerificationMode(mode)
+		default:
+			return nil, fmt.Errorf("unsupported verification mode: %s", mode)
+		}
 	}
 
 	// 读取链接配置
 	if linkConfig, ok := config["link_config"].(map[string]interface{}); ok {
-		if baseURL, ok := linkConfig["base_url"].(string); ok {
-			cfg.LinkConfig.BaseURL = baseURL
+		lc, err := parseLinkConfig(linkConfig)
+		if err != nil {
+			return nil, err
 		}
-		if tokenLength, ok := linkConfig["token_length"].(int); ok {
-			cfg.LinkConfig.TokenLength = tokenLength
-		}
-		if expireTime, ok := linkConfig["expire_time"].(string); ok {
-			duration, err := time.ParseDuration(expireTime)
-			if err != nil {
-				return fmt.Errorf("invalid link expire_time format: %v", err)
-			}
-			cfg.LinkConfig.ExpireTime = duration
-		}
+		cfg.LinkConfig = lc
 	}
 
+	return cfg, nil
+}
+
+// OnLoad 加载配置
+func (h *emailHooks) OnLoad(config map[string]interface{}) error {
+	// 解析配置
+	cfg, err := parseEmailConfig(config)
+	if err != nil {
+		return err
+	}
+
+	// 保存配置
 	h.plugin.config = cfg
 
 	// 更新验证码管理器配置
@@ -424,34 +471,8 @@ func (h *emailHooks) handleLinkMode(email string, operation string, sessionID st
 	}
 }
 
-// NeedsVerification 判断是否需要验证
-func (p *EmailPlugin) NeedsVerification(ctx context.Context, userID string, action string, context map[string]interface{}) (bool, error) {
-	if p.GetState() != types.StateRunning {
-		fmt.Printf("插件状态不是running,返回false\n")
-		return false, nil
-	}
-
-	fmt.Printf("开始验证检查:\n")
-	fmt.Printf("- userID: %s\n", userID)
-	fmt.Printf("- action: %s\n", action)
-	fmt.Printf("- context: %+v\n", context)
-	fmt.Printf("- always_verify: %v\n", p.config.VerificationPolicy.AlwaysVerify)
-	fmt.Printf("- exempt_ips: %v\n", p.config.VerificationPolicy.ExemptIPs)
-	fmt.Printf("- exempt_devices: %v\n", p.config.VerificationPolicy.ExemptDevices)
-
-	// 获取用户配置
-	userConfig, err := p.GetUserConfig(ctx, userID)
-	if err != nil {
-		return false, fmt.Errorf("failed to get user config: %v", err)
-	}
-	fmt.Printf("用户配置: %+v\n", userConfig)
-
-	// 注册时不使用任何豁免
-	if action == "register" {
-		fmt.Printf("注册操作,不使用任何豁免,返回true\n")
-		return true, nil
-	}
-
+// checkExemptions 检查豁免规则
+func (p *EmailPlugin) checkExemptions(ctx context.Context, context map[string]interface{}, userConfig map[string]interface{}) (bool, error) {
 	// 构建豁免配置
 	globalExempts := map[string]interface{}{
 		"exempt_ips":     p.config.VerificationPolicy.ExemptIPs,
@@ -460,55 +481,86 @@ func (p *EmailPlugin) NeedsVerification(ctx context.Context, userID string, acti
 
 	// 检查IP豁免
 	if clientIP, ok := context["ip"].(string); ok {
-		fmt.Printf("检查IP豁免: %s\n", clientIP)
 		result, err := p.exemptManager.CheckExemption(ctx, types.ExemptionTypeIP, clientIP, userConfig, globalExempts)
 		if err != nil {
 			return false, fmt.Errorf("failed to check ip exemption: %v", err)
 		}
-		fmt.Printf("IP豁免检查结果: exempt=%v, reason=%s\n", result.Exempt, result.Reason)
 		if result.Exempt {
-			fmt.Printf("IP在豁免列表中,返回false\n")
-			return false, nil
+			return true, nil
 		}
 	}
 
 	// 检查设备豁免
 	if deviceID, ok := context["device_id"].(string); ok {
-		fmt.Printf("检查设备豁免: %s\n", deviceID)
 		result, err := p.exemptManager.CheckExemption(ctx, types.ExemptionTypeDevice, deviceID, userConfig, globalExempts)
 		if err != nil {
 			return false, fmt.Errorf("failed to check device exemption: %v", err)
 		}
-		fmt.Printf("设备豁免检查结果: exempt=%v, reason=%s\n", result.Exempt, result.Reason)
 		if result.Exempt {
-			fmt.Printf("设备在豁免列表中,返回false\n")
-			return false, nil
+			return true, nil
 		}
+	}
+
+	return false, nil
+}
+
+// checkVerificationInterval 检查验证时间间隔
+func (p *EmailPlugin) checkVerificationInterval(userConfig map[string]interface{}) bool {
+	if userConfig == nil {
+		return false
+	}
+
+	lastVerifyTimeStr, ok := userConfig["last_verify_time"].(string)
+	if !ok {
+		return false
+	}
+
+	lastVerifyTime, err := time.Parse(time.RFC3339, lastVerifyTimeStr)
+	if err != nil {
+		return false
+	}
+
+	interval := time.Since(lastVerifyTime)
+	return interval < p.config.VerificationPolicy.VerifyInterval
+}
+
+// NeedsVerification 判断是否需要验证
+func (p *EmailPlugin) NeedsVerification(ctx context.Context, userID string, action string, context map[string]interface{}) (bool, error) {
+	// 检查插件状态
+	if p.GetState() != types.StateRunning {
+		return false, nil
+	}
+
+	// 获取用户配置
+	userConfig, err := p.GetUserConfig(ctx, userID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get user config: %v", err)
+	}
+
+	// 注册时不使用任何豁免
+	if action == "register" {
+		return true, nil
+	}
+
+	// 检查豁免规则
+	isExempt, err := p.checkExemptions(ctx, context, userConfig)
+	if err != nil {
+		return false, err
+	}
+	if isExempt {
+		return false, nil
 	}
 
 	// 如果设置了总是验证，且不在豁免列表中，返回true
 	if p.config.VerificationPolicy.AlwaysVerify {
-		fmt.Printf("设置了always_verify=true且不在豁免列表中,返回true\n")
 		return true, nil
 	}
 
 	// 检查验证间隔
-	if userConfig != nil {
-		if lastVerifyTimeStr, ok := userConfig["last_verify_time"].(string); ok {
-			lastVerifyTime, err := time.Parse(time.RFC3339, lastVerifyTimeStr)
-			if err == nil {
-				interval := time.Since(lastVerifyTime)
-				fmt.Printf("上次验证时间: %v, 间隔: %v, 最小间隔: %v\n",
-					lastVerifyTime, interval, p.config.VerificationPolicy.VerifyInterval)
-				if interval < p.config.VerificationPolicy.VerifyInterval {
-					fmt.Printf("在验证间隔内,返回false\n")
-					return false, nil
-				}
-			}
-		}
+	if p.checkVerificationInterval(userConfig) {
+		return false, nil
 	}
 
-	fmt.Printf("默认返回true\n")
 	return true, nil
 }
 
@@ -631,108 +683,113 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
+// handleSendRequest 处理发送请求
+func (p *EmailPlugin) handleSendRequest(c *gin.Context) {
+	var req struct {
+		Email     string `json:"email" binding:"required,email"`
+		SessionID string `json:"session_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var err error
+	switch p.config.VerificationMode {
+	case VerificationModeCode:
+		err = p.codeManager.Send(req.Email)
+	case VerificationModeLink:
+		err = p.linkManager.Send(req.Email, req.SessionID)
+	default:
+		err = fmt.Errorf("unsupported verification mode: %s", p.config.VerificationMode)
+	}
+
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Status(http.StatusOK)
+}
+
+// handleVerifyRequest 处理验证请求
+func (p *EmailPlugin) handleVerifyRequest(c *gin.Context) {
+	var req struct {
+		Email string `json:"email" binding:"required,email"`
+		Code  string `json:"code"`  // 验证码模式使用
+		Token string `json:"token"` // 链接模式使用
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var err error
+	var sessionID string
+
+	switch p.config.VerificationMode {
+	case VerificationModeCode:
+		if req.Code == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "code is required for code mode"})
+			return
+		}
+		err = p.codeManager.Verify(req.Email, req.Code)
+	case VerificationModeLink:
+		if req.Token == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "token is required for link mode"})
+			return
+		}
+		sessionID, err = p.linkManager.Verify(req.Email, req.Token)
+	default:
+		err = fmt.Errorf("unsupported verification mode: %s", p.config.VerificationMode)
+	}
+
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if p.config.VerificationMode == VerificationModeLink && sessionID != "" {
+		c.JSON(http.StatusOK, gin.H{"session_id": sessionID})
+	} else {
+		c.Status(http.StatusOK)
+	}
+}
+
+// handleLinkVerifyRedirect 处理链接验证重定向
+func (p *EmailPlugin) handleLinkVerifyRedirect(c *gin.Context) {
+	if p.config.VerificationMode != VerificationModeLink {
+		c.String(http.StatusBadRequest, "Verification link mode is not enabled")
+		return
+	}
+
+	email := c.Query("email")
+	token := c.Query("token")
+
+	if email == "" || token == "" {
+		c.String(http.StatusBadRequest, "Missing email or token")
+		return
+	}
+
+	sessionID, err := p.linkManager.Verify(email, token)
+	if err != nil {
+		c.String(http.StatusBadRequest, fmt.Sprintf("Verification failed: %v", err))
+		return
+	}
+
+	c.Redirect(http.StatusFound, fmt.Sprintf("%s/success?session_id=%s", p.config.LinkConfig.BaseURL, sessionID))
+}
+
 // RegisterRoutes 注册插件路由
 func (p *EmailPlugin) RegisterRoutes(group *gin.RouterGroup) {
 	// 发送验证码或链接
-	group.POST("/send", func(c *gin.Context) {
-		var req struct {
-			Email     string `json:"email" binding:"required,email"`
-			SessionID string `json:"session_id" binding:"required"`
-		}
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		// 根据验证模式选择发送方式
-		var err error
-		switch p.config.VerificationMode {
-		case VerificationModeCode:
-			err = p.codeManager.Send(req.Email)
-		case VerificationModeLink:
-			err = p.linkManager.Send(req.Email, req.SessionID)
-		default:
-			err = fmt.Errorf("unsupported verification mode: %s", p.config.VerificationMode)
-		}
-
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		c.Status(http.StatusOK)
-	})
+	group.POST("/send", p.handleSendRequest)
 
 	// 验证验证码或链接
-	group.POST("/verify", func(c *gin.Context) {
-		var req struct {
-			Email string `json:"email" binding:"required,email"`
-			Code  string `json:"code"`  // 验证码模式使用
-			Token string `json:"token"` // 链接模式使用
-		}
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		// 根据验证模式选择验证方式
-		var err error
-		var sessionID string
-		switch p.config.VerificationMode {
-		case VerificationModeCode:
-			if req.Code == "" {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "code is required for code mode"})
-				return
-			}
-			err = p.codeManager.Verify(req.Email, req.Code)
-		case VerificationModeLink:
-			if req.Token == "" {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "token is required for link mode"})
-				return
-			}
-			sessionID, err = p.linkManager.Verify(req.Email, req.Token)
-		default:
-			err = fmt.Errorf("unsupported verification mode: %s", p.config.VerificationMode)
-		}
-
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		// 如果是链接模式，返回session_id
-		if p.config.VerificationMode == VerificationModeLink {
-			c.JSON(http.StatusOK, gin.H{"session_id": sessionID})
-		} else {
-			c.Status(http.StatusOK)
-		}
-	})
+	group.POST("/verify", p.handleVerifyRequest)
 
 	// 链接验证的重定向处理（用于点击邮件中的链接）
-	group.GET("/verify", func(c *gin.Context) {
-		// 只在链接模式下处理
-		if p.config.VerificationMode != VerificationModeLink {
-			c.String(http.StatusBadRequest, "Verification link mode is not enabled")
-			return
-		}
-
-		email := c.Query("email")
-		token := c.Query("token")
-
-		if email == "" || token == "" {
-			c.String(http.StatusBadRequest, "Missing email or token")
-			return
-		}
-
-		sessionID, err := p.linkManager.Verify(email, token)
-		if err != nil {
-			c.String(http.StatusBadRequest, fmt.Sprintf("Verification failed: %v", err))
-			return
-		}
-
-		// 验证成功，重定向到成功页面，并带上session_id
-		c.Redirect(http.StatusFound, fmt.Sprintf("%s/success?session_id=%s", p.config.LinkConfig.BaseURL, sessionID))
-	})
+	group.GET("/verify", p.handleLinkVerifyRedirect)
 }
 
 // OnInstall 插件安装时的回调

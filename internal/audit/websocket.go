@@ -50,11 +50,8 @@ func NewWebSocketServer(config *WebSocketConfig) *WebSocketServer {
 
 // Start 启动WebSocket服务器
 func (s *WebSocketServer) Start() {
-	for {
-		select {
-		case log := <-s.broadcast:
-			s.broadcastLog(log)
-		}
+	for log := range s.broadcast {
+		s.broadcastLog(log)
 	}
 }
 

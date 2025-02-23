@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -276,72 +275,4 @@ func (s *authAccountService) Login(ctx context.Context, appID string, req *model
 	}
 
 	return s.buildUserResponse(user, tokenPair, plugins, verifyStatus, session.ID), nil
-}
-
-// ContinueLogin 继续登录（通过会话ID）
-func (s *authAccountService) ContinueLogin(ctx context.Context, sessionID string) (*model.ExtendedLoginResponse, error) {
-	// 获取会话信息
-	session, err := s.verificationSvc.GetSessionByID(ctx, sessionID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get session: %v", err)
-	}
-	if session == nil {
-		return nil, fmt.Errorf("session not found")
-	}
-
-	// 验证会话是否过期
-	if session.ExpiredAt.Before(time.Now()) {
-		return nil, fmt.Errorf("session expired")
-	}
-
-	// 获取用户信息
-	var user *model.User
-	if session.UserID != nil {
-		user, err = s.userRepo.GetByID(ctx, *session.UserID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get user: %v", err)
-		}
-		if user == nil {
-			return nil, fmt.Errorf("user not found")
-		}
-	} else {
-		return nil, fmt.Errorf("invalid session: no user ID")
-	}
-
-	// 检查用户状态
-	if user.Status == model.UserStatusDisabled {
-		return nil, ErrUserDisabled
-	}
-
-	// 获取需要的插件
-	plugins, err := s.verificationSvc.GetRequiredPlugins(ctx, session.AppID, session.Action, session.Context, *session.UserID)
-	if err != nil {
-		return nil, err
-	}
-
-	// 检查验证状态
-	verifyStatus, err := s.verificationSvc.ValidatePluginStatusBySession(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-
-	// 如果验证未完成，返回当前状态
-	if len(plugins) > 0 && !verifyStatus.Completed {
-		return s.buildUserResponse(user, nil, plugins, verifyStatus, sessionID), ErrPluginRequired
-	}
-
-	// 验证完成，生成token
-	tokenPair, err := s.tokenService.GenerateTokenPair(ctx, user, "read")
-	if err != nil {
-		return nil, err
-	}
-
-	// 记录登录位置
-	if ip, ok := session.Context["ip"].(string); ok && ip != "" {
-		if err := s.locationSvc.RecordLoginLocation(ctx, session.AppID, user.ID, ip); err != nil {
-			log.Printf("Failed to record login location: %v", err)
-		}
-	}
-
-	return s.buildUserResponse(user, tokenPair, plugins, verifyStatus, sessionID), nil
 }
