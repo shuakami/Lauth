@@ -312,7 +312,7 @@ LAuth 支持通过环境变量或配置文件进行配置。配置文件位于 `
 - [x] OAuth2.0 令牌端点
 - [x] OpenID Connect 支持
 - [ ] OAuth2.0 其他授权模式
-- [ ] 多因素认证
+- [x] 多因素认证
 - [ ] SDK 开发
 - [ ] Docker 支持
 - [ ] Kubernetes 部署指南

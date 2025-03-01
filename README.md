@@ -312,7 +312,7 @@ Key configuration options:
 - [x] OAuth2.0 Token endpoint
 - [x] OpenID Connect support
 - [ ] OAuth2.0 additional grant types
-- [ ] Multi-factor authentication
+- [x] Multi-factor authentication
 - [ ] SDK development
 - [ ] Docker support
 - [ ] Kubernetes deployment guides
