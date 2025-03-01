@@ -72,6 +72,10 @@ LAuth is an enterprise-grade unified authentication platform that provides centr
     - Verification link mode
     - Dark mode support
     - Responsive email templates
+  - TOTP (Time-based One-Time Password) support
+    - QR code generation
+    - Configurable settings (period, digits, etc)
+    - Setup, verification and disable flows
   - Extensible plugin architecture
   - Plugin lifecycle management
   - Real-time plugin status tracking
@@ -82,7 +86,7 @@ LAuth is an enterprise-grade unified authentication platform that provides centr
   - Smart plugin interface
   - Plugin dependency injection
   - Middleware support
-  - Error handling mechanism
+  - Enhanced error handling
   - Event emission capability
   - Temporary session support
   - Verification status cleanup
@@ -91,6 +95,10 @@ LAuth is an enterprise-grade unified authentication platform that provides centr
   - Automatic plugin status tracking
   - Smart verification flow
   - Registration-specific rules
+  - Dynamic plugin discovery
+  - Automatic plugin registration
+  - Optional verification sessions
+  - Standardized API responses
 - **User Profile Management**:
   - Flexible profile schema
   - Custom fields support
@@ -250,7 +258,8 @@ go run main.go
 - `POST /api/v1/apps/:id/plugins/install` - Install plugin
 - `POST /api/v1/apps/:id/plugins/uninstall/:name` - Uninstall plugin
 - `POST /api/v1/apps/:id/plugins/:name/execute` - Execute plugin
-- `GET /api/v1/apps/:id/plugins/list` - List plugins
+- `GET /api/v1/apps/:id/plugins/list` - List installed plugins
+- `GET /api/v1/apps/:id/plugins/all` - List all registered plugins
 - `PUT /api/v1/apps/:id/plugins/:name/config` - Update plugin config
 
 ### OAuth 2.0 and OpenID Connect

@@ -72,6 +72,10 @@ LAuth 是一个企业级统一认证平台，为多个应用提供集中式的�
     - 验证链接模式
     - 暗黑模式支持
     - 响应式邮件模板
+  - TOTP（基于时间的一次性密码）支持
+    - 二维码生成
+    - 可配置设置（周期、位数等）
+    - 设置、验证和禁用流程
   - 可扩展的插件架构
   - 插件生命周期管理
   - 实时插件状态追踪
@@ -82,7 +86,7 @@ LAuth 是一个企业级统一认证平台，为多个应用提供集中式的�
   - 智能插件接口
   - 插件依赖注入
   - 中间件支持
-  - 错误处理机制
+  - 增强的错误处理机制
   - 事件发送功能
   - 临时会话支持
   - 验证状态清理
@@ -91,6 +95,10 @@ LAuth 是一个企业级统一认证平台，为多个应用提供集中式的�
   - 自动插件状态追踪
   - 智能验证流程
   - 注册专用规则
+  - 动态插件发现
+  - 自动插件注册
+  - 可选的验证会话
+  - 标准化API响应
 - **用户档案管理**：
   - 灵活的档案模式
   - 自定义字段支持
@@ -244,7 +252,8 @@ go run main.go
 - `POST /api/v1/apps/:id/plugins/install` - 安装插件
 - `POST /api/v1/apps/:id/plugins/uninstall/:name` - 卸载插件
 - `POST /api/v1/apps/:id/plugins/:name/execute` - 执行插件
-- `GET /api/v1/apps/:id/plugins/list` - 列出插件
+- `GET /api/v1/apps/:id/plugins/list` - 列出已安装插件
+- `GET /api/v1/apps/:id/plugins/all` - 列出所有注册插件
 - `PUT /api/v1/apps/:id/plugins/:name/config` - 更新插件配置
 
 ### OAuth 2.0 和 OpenID Connect
