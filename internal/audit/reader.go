@@ -242,6 +242,11 @@ func (r *Reader) listApps() ([]string, error) {
 	return apps, nil
 }
 
+// ListApps 获取所有应用ID列表
+func (r *Reader) ListApps() ([]string, error) {
+	return r.listApps()
+}
+
 // readFile 读取单个日志文件
 func (r *Reader) readFile(filename string, params QueryParams) ([]*AuditLog, error) {
 	file, err := os.Open(filename)
@@ -390,4 +395,24 @@ func (r *Reader) GetStats(appID string, startTime, endTime time.Time) (*AppLogSt
 		EventStats: stats.EventStats,
 		Size:       stats.Size,
 	}, nil
+}
+
+// GetLogCount 获取应用的日志总数
+func (r *Reader) GetLogCount(appID string) (int64, error) {
+	// 加载应用索引
+	index, err := r.loadIndex(appID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to load index for app %s: %v", appID, err)
+	}
+
+	if index == nil {
+		return 0, nil
+	}
+
+	stats, ok := index.AppStats[appID]
+	if !ok {
+		return 0, nil
+	}
+
+	return int64(stats.TotalLogs), nil
 }

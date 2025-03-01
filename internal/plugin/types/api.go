@@ -2,11 +2,12 @@ package types
 
 // APIInfo API接口信息
 type APIInfo struct {
-	Method      string            `json:"method"`      // HTTP方法
-	Path        string            `json:"path"`        // 路径
-	Description string            `json:"description"` // 接口描述
-	Parameters  map[string]string `json:"parameters"`  // 参数说明
-	Returns     map[string]string `json:"returns"`     // 返回值说明
+	Method       string            `json:"method"`        // HTTP方法
+	Path         string            `json:"path"`          // 路径
+	Description  string            `json:"description"`   // 接口描述
+	Parameters   map[string]string `json:"parameters"`    // 参数说明
+	Returns      map[string]string `json:"returns"`       // 返回值说明
+	AuthRequired bool              `json:"auth_required"` // 是否需要认证
 }
 
 // APIResponse API响应

@@ -11,6 +11,7 @@ import (
 	"lauth/pkg/config"
 	"lauth/pkg/crypto"
 	"lauth/pkg/engine"
+	"lauth/pkg/middleware"
 	"lauth/pkg/redis"
 )
 
@@ -52,6 +53,9 @@ func InitServices(cfg *config.Config, repos *Repositories, redisClient *redis.Cl
 		time.Duration(cfg.JWT.RefreshTokenExpire)*time.Second,
 	)
 
+	// 初始化认证中间件
+	authMiddleware := middleware.NewAuthMiddleware(tokenService, cfg.Server.AuthEnabled)
+
 	// 初始化规则引擎
 	ruleParser := engine.NewParser()
 	ruleExecutor := engine.NewExecutor()
@@ -63,8 +67,10 @@ func InitServices(cfg *config.Config, repos *Repositories, redisClient *redis.Cl
 		repos.PluginConfigRepo,
 		repos.PluginUserConfigRepo,
 		repos.PluginVerificationRecordRepo,
+		repos.VerificationSessionRepo,
 		loginLocationService,
 		&cfg.SMTP,
+		authMiddleware,
 	)
 
 	// 加载插件配置

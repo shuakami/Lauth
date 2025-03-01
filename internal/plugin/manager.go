@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	"lauth/internal/model"
-	"lauth/internal/plugin/email"
 	"lauth/internal/plugin/types"
+	"lauth/internal/plugin/user"
 	"lauth/internal/repository"
 	"lauth/pkg/config"
 	"lauth/pkg/container"
@@ -34,6 +34,9 @@ type manager struct {
 	// verificationRepo 验证记录存储
 	verificationRepo repository.PluginVerificationRecordRepository
 
+	// sessionRepo 验证会话存储
+	sessionRepo repository.VerificationSessionRepository
+
 	// registry 插件注册表
 	registry types.PluginRegistry
 
@@ -42,6 +45,9 @@ type manager struct {
 
 	// 依赖注入容器
 	container container.PluginContainer
+
+	// authMiddleware 认证中间件
+	authMiddleware types.AuthMiddleware
 }
 
 // NewManager 创建插件管理器实例
@@ -49,16 +55,20 @@ func NewManager(
 	configRepo repository.PluginConfigRepository,
 	userConfigRepo repository.PluginUserConfigRepository,
 	verificationRepo repository.PluginVerificationRecordRepository,
+	sessionRepo repository.VerificationSessionRepository,
 	locationService types.LocationService,
 	smtpConfig *config.SMTPConfig,
+	authMiddleware types.AuthMiddleware,
 ) types.Manager {
 	m := &manager{
 		configRepo:       configRepo,
 		userConfigRepo:   userConfigRepo,
 		verificationRepo: verificationRepo,
+		sessionRepo:      sessionRepo,
 		registry:         NewRegistry(),
 		locationService:  locationService,
 		container:        container.NewPluginContainer(),
+		authMiddleware:   authMiddleware,
 	}
 
 	// 注册全局服务
@@ -66,23 +76,35 @@ func NewManager(
 	m.container.Register("config_repo", configRepo, true)
 	m.container.Register("user_config_repo", userConfigRepo, true)
 	m.container.Register("verification_repo", verificationRepo, true)
+	m.container.Register("verification_session_repo", sessionRepo, true)
 	m.container.Register("smtp_config", smtpConfig, true)
 
-	// 注册内置插件
-	emailPlugin := email.NewEmailPlugin()
-	metadata := emailPlugin.GetMetadata()
-	var dependencies []string
-	if injectable, ok := emailPlugin.(types.Injectable); ok {
-		dependencies = injectable.GetDependencies()
-	}
-	if err := m.RegisterPlugin(&types.PluginDescriptor{
-		Name:         metadata.Name,
-		Version:      metadata.Version,
-		Factory:      func() types.Plugin { return email.NewEmailPlugin() },
-		Metadata:     metadata,
-		Dependencies: dependencies,
-	}); err != nil {
-		log.Printf("Failed to register email plugin: %v", err)
+	// 注册用户配置服务
+	userConfigService := user.NewConfigService(userConfigRepo)
+	m.container.Register("userConfig", userConfigService, true)
+
+	// 从全局注册表中注册所有插件
+	for _, plugin := range types.GetRegisteredPlugins() {
+		// 创建临时实例获取元数据
+		p := plugin.Factory()
+		metadata := p.GetMetadata()
+
+		// 获取依赖
+		var dependencies []string
+		if injectable, ok := p.(types.Injectable); ok {
+			dependencies = injectable.GetDependencies()
+		}
+
+		// 注册插件
+		if err := m.RegisterPlugin(&types.PluginDescriptor{
+			Name:         plugin.Name,
+			Version:      metadata.Version,
+			Factory:      plugin.Factory,
+			Metadata:     metadata,
+			Dependencies: dependencies,
+		}); err != nil {
+			log.Printf("Failed to register plugin %s: %v", plugin.Name, err)
+		}
 	}
 
 	return m
@@ -150,8 +172,51 @@ func (m *manager) RegisterPluginRoutes(appID string, routerGroup *gin.RouterGrou
 		// 创建插件路由组
 		pluginGroup := routerGroup.Group(fmt.Sprintf("/%s", name))
 
-		// 注册插件路由
-		p.RegisterRoutes(pluginGroup)
+		// 检查插件是否实现了Routable接口
+		routable, ok := p.(types.Routable)
+		if !ok {
+			continue // 不是Routable,跳过
+		}
+
+		// 获取需要认证的路由列表
+		authRoutes := routable.GetRoutesRequireAuth()
+
+		// 判断是否有需要认证的路由
+		if len(authRoutes) > 0 {
+			// 检查是否需要对所有路由进行认证
+			allRoutesNeedAuth := false
+			for _, route := range authRoutes {
+				if route == "*" {
+					allRoutesNeedAuth = true
+					break
+				}
+			}
+
+			if allRoutesNeedAuth {
+				// 所有路由都需要认证
+				authGroup := pluginGroup.Group("")
+				authGroup.Use(m.authMiddleware.HandleAuth())
+				routable.RegisterRoutes(authGroup)
+			} else {
+				// 部分路由需要认证
+				// 创建两个路由组：一个需要认证，一个不需要认证
+				authGroup := pluginGroup.Group("")
+				authGroup.Use(m.authMiddleware.HandleAuth())
+
+				// 使用 pluginRouter 来将需要认证的路由与不需要认证的路由分开
+				router := &pluginRouter{
+					pluginGroup: pluginGroup,
+					authGroup:   authGroup,
+					authRoutes:  authRoutes,
+				}
+
+				// 注册路由
+				routable.RegisterRoutes(router.AsRouterGroup())
+			}
+		} else {
+			// 所有路由都不需要认证
+			routable.RegisterRoutes(pluginGroup)
+		}
 	}
 	return nil
 }
@@ -180,14 +245,29 @@ func (m *manager) UninstallPlugin(ctx context.Context, appID string, name string
 	// 获取SmartPlugin实例
 	p, exists := m.GetSmartPlugin(appID, name)
 	if exists {
+		// 先停止插件
+		if err := p.Stop(); err != nil {
+			return types.NewPluginError(types.ErrExecuteFailed,
+				fmt.Sprintf("failed to stop plugin %s: plugin must be stopped before uninstall", name),
+				err)
+		}
+
 		// 调用OnUninstall
 		if err := p.OnUninstall(appID); err != nil {
-			return fmt.Errorf("failed to uninstall plugin: %v", err)
+			return types.NewPluginError(types.ErrExecuteFailed,
+				fmt.Sprintf("failed to uninstall plugin %s: plugin uninstall hook failed", name),
+				err)
 		}
 	}
 
 	// 卸载插件
-	return m.UnloadPlugin(appID, name)
+	if err := m.UnloadPlugin(appID, name); err != nil {
+		return types.NewPluginError(types.ErrExecuteFailed,
+			fmt.Sprintf("failed to unload plugin %s: plugin unload failed", name),
+			err)
+	}
+
+	return nil
 }
 
 // LoadPlugin 加载插件
@@ -195,7 +275,6 @@ func (m *manager) LoadPlugin(appID string, p types.Plugin, config map[string]int
 	if appID == "" {
 		return fmt.Errorf("app_id is required")
 	}
-
 	if p == nil {
 		return fmt.Errorf("plugin is nil")
 	}
@@ -256,7 +335,6 @@ func (m *manager) UnloadPlugin(appID string, name string) error {
 	if appID == "" {
 		return fmt.Errorf("app_id is required")
 	}
-
 	if name == "" {
 		return fmt.Errorf("plugin name is empty")
 	}
@@ -274,8 +352,8 @@ func (m *manager) UnloadPlugin(appID string, name string) error {
 		return fmt.Errorf("plugin %s not found for app %s", name, appID)
 	}
 
-	// 卸载插件
 	plugin := p.(types.Plugin)
+	// 卸载插件
 	if err := plugin.Unload(); err != nil {
 		return fmt.Errorf("failed to unload plugin %s for app %s: %v", name, appID, err)
 	}
@@ -345,7 +423,6 @@ func (m *manager) GetPlugin(appID string, name string) (types.Plugin, bool) {
 
 	// 存储到内存中
 	appPluginMap.Store(name, p)
-
 	return p, true
 }
 

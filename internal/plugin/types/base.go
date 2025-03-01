@@ -480,3 +480,15 @@ func (p *SmartPluginBase) GetLastVerification(ctx context.Context, userID string
 	// 默认实现为无验证信息
 	return nil, nil
 }
+
+// GetRoutesRequireAuth 获取需要认证的路由列表
+func (p *SmartPluginBase) GetRoutesRequireAuth() []string {
+	// 默认实现为所有路由都不需要认证
+	return nil
+}
+
+// NeedsVerificationSession 判断指定操作是否需要验证会话
+func (p *SmartPluginBase) NeedsVerificationSession(operation string) bool {
+	// 默认实现为所有操作都需要验证会话
+	return true
+}

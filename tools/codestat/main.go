@@ -206,6 +206,10 @@ func collectFiles(root string) ([]string, error) {
 			}
 			return nil
 		}
+		// 跳过编译产物(.exe)
+		if strings.ToLower(filepath.Ext(info.Name())) == ".exe" {
+			return nil
+		}
 		// 跳过 vendor、node_modules
 		if info.IsDir() && (info.Name() == "vendor" || info.Name() == "node_modules") {
 			return filepath.SkipDir

@@ -3,7 +3,9 @@ package router
 import (
 	v1 "lauth/api/v1"
 	"lauth/internal/audit"
+	"lauth/internal/plugin/types"
 	"lauth/pkg/middleware"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -215,66 +217,270 @@ func (r *Router) registerAuditRoutes(group *gin.RouterGroup) {
 	}
 }
 
-// registerPluginRoutes 注册插件相关路由
-func (r *Router) registerPluginRoutes(group *gin.RouterGroup) {
-	plugins := group.Group("/apps/:id/plugins")
+// pluginRouter 插件路由器
+type pluginRouter struct {
+	pluginGroup *gin.RouterGroup
+	authGroup   *gin.RouterGroup
+	authRoutes  []string
+}
 
-	// 需要认证的路由
-	authPlugins := plugins.Group("")
-	authPlugins.Use(r.authMiddleware.HandleAuth())
-	{
-		// 插件管理
-		authPlugins.POST("/install", func(c *gin.Context) {
-			c.Params = append(c.Params, gin.Param{
-				Key:   "app_id",
-				Value: c.Param("id"),
-			})
-			r.pluginHandler.InstallPlugin(c)
-		})
-		authPlugins.POST("/uninstall/:name", func(c *gin.Context) {
-			c.Params = append(c.Params, gin.Param{
-				Key:   "app_id",
-				Value: c.Param("id"),
-			})
-			r.pluginHandler.UninstallPlugin(c)
-		})
-
-		// 已弃用的路由(保持向后兼容)
-		authPlugins.POST("/load", func(c *gin.Context) {
-			c.Params = append(c.Params, gin.Param{
-				Key:   "app_id",
-				Value: c.Param("id"),
-			})
-			r.pluginHandler.LoadPlugin(c)
-		})
-
-		// 插件列表
-		authPlugins.GET("/list", func(c *gin.Context) {
-			c.Params = append(c.Params, gin.Param{
-				Key:   "app_id",
-				Value: c.Param("id"),
-			})
-			r.pluginHandler.ListPlugins(c)
-		})
-
-		// 插件配置
-		authPlugins.PUT("/:name/config", func(c *gin.Context) {
-			c.Params = append(c.Params, gin.Param{
-				Key:   "app_id",
-				Value: c.Param("id"),
-			})
-			r.pluginHandler.UpdatePluginConfig(c)
-		})
+// Handle 处理路由注册
+func (pr *pluginRouter) Handle(httpMethod, relativePath string, handlers ...gin.HandlerFunc) gin.IRoutes {
+	// 检查路径是否需要认证
+	needAuth := false
+	for _, authPath := range pr.authRoutes {
+		if authPath == relativePath || authPath == "*" {
+			needAuth = true
+			break
+		}
 	}
 
-	// 插件执行(不需要认证)
-	plugins.POST("/:name/execute", func(c *gin.Context) {
+	log.Printf("[Plugin Router] Registering route: %s %s (Auth Required: %v)", httpMethod, relativePath, needAuth)
+
+	if needAuth {
+		return pr.authGroup.Handle(httpMethod, relativePath, handlers...)
+	}
+	return pr.pluginGroup.Handle(httpMethod, relativePath, handlers...)
+}
+
+// POST 注册POST路由
+func (pr *pluginRouter) POST(relativePath string, handlers ...gin.HandlerFunc) gin.IRoutes {
+	return pr.Handle(http.MethodPost, relativePath, handlers...)
+}
+
+// GET 注册GET路由
+func (pr *pluginRouter) GET(relativePath string, handlers ...gin.HandlerFunc) gin.IRoutes {
+	return pr.Handle(http.MethodGet, relativePath, handlers...)
+}
+
+// DELETE 注册DELETE路由
+func (pr *pluginRouter) DELETE(relativePath string, handlers ...gin.HandlerFunc) gin.IRoutes {
+	return pr.Handle(http.MethodDelete, relativePath, handlers...)
+}
+
+// PATCH 注册PATCH路由
+func (pr *pluginRouter) PATCH(relativePath string, handlers ...gin.HandlerFunc) gin.IRoutes {
+	return pr.Handle(http.MethodPatch, relativePath, handlers...)
+}
+
+// PUT 注册PUT路由
+func (pr *pluginRouter) PUT(relativePath string, handlers ...gin.HandlerFunc) gin.IRoutes {
+	return pr.Handle(http.MethodPut, relativePath, handlers...)
+}
+
+// OPTIONS 注册OPTIONS路由
+func (pr *pluginRouter) OPTIONS(relativePath string, handlers ...gin.HandlerFunc) gin.IRoutes {
+	return pr.Handle(http.MethodOptions, relativePath, handlers...)
+}
+
+// HEAD 注册HEAD路由
+func (pr *pluginRouter) HEAD(relativePath string, handlers ...gin.HandlerFunc) gin.IRoutes {
+	return pr.Handle(http.MethodHead, relativePath, handlers...)
+}
+
+// Match 匹配路由
+func (pr *pluginRouter) Match(methods []string, path string, handlers ...gin.HandlerFunc) gin.IRoutes {
+	for _, method := range methods {
+		pr.Handle(method, path, handlers...)
+	}
+	return pr.pluginGroup
+}
+
+// Any 注册任意HTTP方法的路由
+func (pr *pluginRouter) Any(relativePath string, handlers ...gin.HandlerFunc) gin.IRoutes {
+	// 注册所有HTTP方法
+	pr.GET(relativePath, handlers...)
+	pr.POST(relativePath, handlers...)
+	pr.PUT(relativePath, handlers...)
+	pr.PATCH(relativePath, handlers...)
+	pr.HEAD(relativePath, handlers...)
+	pr.OPTIONS(relativePath, handlers...)
+	pr.DELETE(relativePath, handlers...)
+	return pr.pluginGroup
+}
+
+// Use 添加中间件
+func (pr *pluginRouter) Use(middleware ...gin.HandlerFunc) gin.IRoutes {
+	pr.pluginGroup.Use(middleware...)
+	pr.authGroup.Use(middleware...)
+	return pr.pluginGroup
+}
+
+// AsRouterGroup 返回路由组接口
+func (pr *pluginRouter) AsRouterGroup() *gin.RouterGroup {
+	return pr.pluginGroup
+}
+
+// registerGlobalPluginRoutes 注册全局插件路由
+func (r *Router) registerGlobalPluginRoutes(group *gin.RouterGroup) {
+	group.GET("/plugins/all", r.pluginHandler.ListAllPlugins)
+}
+
+// injectAppIDMiddleware 注入appID中间件
+func (r *Router) injectAppIDMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// 获取appID
+		appID := c.Param("id")
+		if appID == "" {
+			c.Next()
+			return
+		}
+
+		// 获取插件名称
+		pluginName := c.Param("name")
+		if pluginName == "" {
+			c.Next()
+			return
+		}
+
+		log.Printf("[Plugin Middleware] Processing request for plugin: %s, appID: %s", pluginName, appID)
+		// 设置appID到上下文
+		c.Set("app_id", appID)
+		c.Next()
+	}
+}
+
+// wrapWithAppID 包装处理函数,注入appID参数
+func (r *Router) wrapWithAppID(handler gin.HandlerFunc) gin.HandlerFunc {
+	return func(c *gin.Context) {
 		c.Params = append(c.Params, gin.Param{
 			Key:   "app_id",
 			Value: c.Param("id"),
 		})
-		r.pluginHandler.ExecutePlugin(c)
-	})
+		handler(c)
+	}
+}
+
+// registerAppPluginRoutes 注册应用级插件路由
+func (r *Router) registerAppPluginRoutes(appPlugins *gin.RouterGroup) {
+	// 无需认证的API
+	appPlugins.POST("/:name/execute", r.wrapWithAppID(r.pluginHandler.ExecutePlugin))
+
+	// 需要认证的API
+	auth := appPlugins.Group("")
+	auth.Use(r.authMiddleware.HandleAuth())
+	{
+		auth.POST("/install", r.wrapWithAppID(r.pluginHandler.InstallPlugin))
+		auth.POST("/uninstall/:name", r.wrapWithAppID(r.pluginHandler.UninstallPlugin))
+		auth.PUT("/:name/config", r.wrapWithAppID(r.pluginHandler.UpdatePluginConfig))
+		auth.GET("/list", r.wrapWithAppID(r.pluginHandler.ListPlugins))
+		auth.GET("/all", r.pluginHandler.ListAllPlugins)
+		auth.POST("/load", r.wrapWithAppID(r.pluginHandler.LoadPlugin))
+	}
+}
+
+// registerDynamicPluginRoutes 注册动态插件路由
+func (r *Router) registerDynamicPluginRoutes(appPlugins *gin.RouterGroup) {
+	// 获取已注册的插件列表(仅仅是所有"插件类型")
+	registeredPlugins := types.GetRegisteredPlugins()
+	log.Printf("[Plugin Routes] Found %d registered plugins", len(registeredPlugins))
+
+	// 注册每个插件的路由
+	for i, pluginMeta := range registeredPlugins {
+		pluginName := pluginMeta.Name
+		log.Printf("[Plugin Routes] Processing plugin #%d: %s", i+1, pluginName)
+
+		// 为该插件创建独立的路由组
+		pluginGroup := appPlugins.Group("/" + pluginName)
+		log.Printf("[Plugin Routes] Created group for plugin %s: %s", pluginName, pluginGroup.BasePath())
+
+		// 添加中间件: 获取已安装的插件实例并存入context
+		pluginGroup.Use(func(c *gin.Context) {
+			appID := c.Param("id")
+			if appID == "" {
+				log.Printf("[Plugin Routes] Missing :id in path, can't fetch plugin")
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "missing appID"})
+				return
+			}
+
+			installedPlugin, ok := r.pluginHandler.GetPlugin(appID, pluginName)
+			if !ok {
+				log.Printf("[Plugin Routes] Plugin %s not installed for app %s", pluginName, appID)
+				c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "plugin not installed"})
+				return
+			}
+			// 把"已安装的真正插件对象"存进 context
+			c.Set("installed_plugin", installedPlugin)
+
+			c.Next()
+		})
+
+		// 1) 创建临时插件实例用于注册路由
+		p := pluginMeta.Factory()
+
+		// 2) 如果插件支持路由,注册其路由
+		if routable, ok := p.(types.Routable); ok {
+			r.registerRoutablePluginRoutes(pluginName, routable, pluginGroup)
+		} else {
+			log.Printf("[Plugin Routes] Plugin %s is not routable", pluginName)
+		}
+	}
+}
+
+// registerRoutablePluginRoutes 注册可路由插件的路由
+func (r *Router) registerRoutablePluginRoutes(pluginName string, routable types.Routable, pluginGroup *gin.RouterGroup) {
+	// 获取需要认证的路由列表
+	authRoutes := routable.GetRoutesRequireAuth()
+	log.Printf("[Plugin Routes] Plugin %s has %d auth routes: %v", pluginName, len(authRoutes), authRoutes)
+
+	// 判断是否有需要认证的路由
+	if len(authRoutes) > 0 {
+		// 检查是否需要对所有路由进行认证
+		allRoutesNeedAuth := false
+		for _, route := range authRoutes {
+			if route == "*" {
+				allRoutesNeedAuth = true
+				break
+			}
+		}
+
+		if allRoutesNeedAuth {
+			// 所有路由都需要认证
+			log.Printf("[Plugin Routes] All routes for plugin %s require auth", pluginName)
+			authGroup := pluginGroup.Group("")
+			authGroup.Use(r.authMiddleware.HandleAuth())
+			routable.RegisterRoutes(authGroup)
+		} else {
+			// 部分路由需要认证
+			log.Printf("[Plugin Routes] Some routes for plugin %s require auth", pluginName)
+			// 创建两个路由组：一个需要认证，一个不需要认证
+			authGroup := pluginGroup.Group("")
+			authGroup.Use(r.authMiddleware.HandleAuth())
+
+			// 注册路由时，根据路径决定使用哪个路由组
+			router := &pluginRouter{
+				pluginGroup: pluginGroup,
+				authGroup:   authGroup,
+				authRoutes:  authRoutes,
+			}
+
+			// 注册路由
+			routable.RegisterRoutes(router.AsRouterGroup())
+		}
+	} else {
+		// 所有路由都不需要认证
+		log.Printf("[Plugin Routes] No routes for plugin %s require auth", pluginName)
+		routable.RegisterRoutes(pluginGroup)
+	}
+}
+
+// registerPluginRoutes 注册插件相关路由
+func (r *Router) registerPluginRoutes(group *gin.RouterGroup) {
+	// 注册全局插件路由
+	r.registerGlobalPluginRoutes(group)
+
+	// 应用插件API
+	appPlugins := group.Group("/apps/:id/plugins")
+	{
+		// 注入appID中间件
+		appPlugins.Use(r.injectAppIDMiddleware())
+
+		// 注册应用级插件路由
+		r.registerAppPluginRoutes(appPlugins)
+
+		// 注册动态插件路由
+		r.registerDynamicPluginRoutes(appPlugins)
+	}
 }
 
 // registerLoginLocationRoutes 注册登录位置相关路由

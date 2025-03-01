@@ -12,10 +12,11 @@ import (
 
 // VerificationStatus 验证状态
 type VerificationStatus struct {
-	Completed  bool                     `json:"completed"`   // 是否完成
-	Status     string                   `json:"status"`      // 当前状态
-	NextPlugin *model.PluginRequirement `json:"next_plugin"` // 下一个需要的插件
-	UpdatedAt  time.Time                `json:"updated_at"`  // 更新时间
+	Completed  bool                      `json:"completed"` // 是否完成
+	Status     string                    `json:"status"`    // 当前状态
+	NextPlugin *model.PluginRequirement  `json:"next_plugin,omitempty"`
+	UpdatedAt  time.Time                 `json:"updated_at"` // 更新时间
+	Plugins    []model.PluginRequirement `json:"plugins,omitempty"`
 }
 
 // verificationSessionService 会话管理服务

@@ -89,6 +89,11 @@ type Plugin interface {
 
 	// Stop 停止插件
 	Stop() error
+
+	// NeedsVerificationSession 判断指定操作是否需要验证会话
+	// operation: 操作类型
+	// 返回 true 表示需要验证会话，false 表示不需要
+	NeedsVerificationSession(operation string) bool
 }
 
 // Executable 定义了插件执行接口
@@ -146,6 +151,13 @@ type Routable interface {
 	// GetAPIInfo 获取插件API信息
 	// 返回插件注册的所有API接口信息
 	GetAPIInfo() []APIInfo
+
+	// GetRoutesRequireAuth 获取需要认证的路由列表
+	// 返回插件中需要认证的路由路径(相对于插件路由组的路径)
+	// 例如: []string{"/setup", "/disable"} 表示 /setup 和 /disable 路由需要认证
+	// 如果返回nil或空切片，表示所有路由都不需要认证
+	// 如果返回包含"*"的切片，表示所有路由都需要认证
+	GetRoutesRequireAuth() []string
 }
 
 // Injectable 定义了插件依赖注入接口
@@ -227,4 +239,10 @@ type Manager interface {
 	// UninstallPlugin 卸载插件
 	// 会调用插件的OnUninstall方法
 	UninstallPlugin(ctx context.Context, appID string, name string) error
+}
+
+// AuthMiddleware 认证中间件接口
+type AuthMiddleware interface {
+	// HandleAuth 处理认证
+	HandleAuth() gin.HandlerFunc
 }

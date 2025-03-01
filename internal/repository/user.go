@@ -17,6 +17,7 @@ type UserRepository interface {
 	Update(ctx context.Context, user *model.User) error
 	Delete(ctx context.Context, id string) error
 	List(ctx context.Context, appID string, offset, limit int) ([]model.User, int64, error)
+	Count(ctx context.Context) (int64, error)
 }
 
 // userRepository 用户仓储实现
@@ -93,4 +94,11 @@ func (r *userRepository) List(ctx context.Context, appID string, offset, limit i
 	}
 
 	return users, total, nil
+}
+
+// Count 获取用户总数
+func (r *userRepository) Count(ctx context.Context) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&model.User{}).Count(&count).Error
+	return count, err
 }

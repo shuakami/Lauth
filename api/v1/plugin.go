@@ -78,13 +78,30 @@ func (h *PluginHandler) InstallPlugin(c *gin.Context) {
 func (h *PluginHandler) UninstallPlugin(c *gin.Context) {
 	appID := c.Param("app_id")
 	if appID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "app_id is required"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "INVALID_PARAM",
+			"message": "app_id is required",
+		})
 		return
 	}
 
 	name := c.Param("name")
 	if err := h.pluginManager.UninstallPlugin(c.Request.Context(), appID, name); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		// 检查是否是插件错误
+		if pluginErr, ok := err.(*types.PluginError); ok {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"code":    pluginErr.Code,
+				"message": pluginErr.Message,
+				"details": pluginErr.Cause.Error(),
+			})
+			return
+		}
+		// 其他错误
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "INTERNAL_ERROR",
+			"message": "Failed to uninstall plugin",
+			"details": err.Error(),
+		})
 		return
 	}
 
@@ -178,13 +195,6 @@ func (h *PluginHandler) ExecutePlugin(c *gin.Context) {
 		return
 	}
 
-	// 获取验证会话
-	session, err := h.getVerificationSession(c, appID, &req)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
 	// 获取插件实例
 	plugin, exists := h.pluginManager.GetPlugin(appID, name)
 	if !exists {
@@ -192,36 +202,46 @@ func (h *PluginHandler) ExecutePlugin(c *gin.Context) {
 		return
 	}
 
-	// 验证插件是否支持当前业务场景
-	if err := h.validatePluginAction(plugin, session.Action); err != nil {
+	// 根据插件声明判断是否需要验证会话
+	var session *model.VerificationSession
+	var err error
+	if plugin.NeedsVerificationSession(req.Operation) {
+		// 需要验证会话的操作
+		session, err = h.getVerificationSession(c, appID, &req)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		// 验证插件是否支持当前业务场景
+		if err := h.validatePluginAction(plugin, session.Action); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		// 将会话ID添加到参数中
+		req.Params["session_id"] = session.ID
+	}
+
+	// 将操作类型添加到参数中
+	req.Params["operation"] = req.Operation
+
+	// 执行插件
+	if err := h.pluginManager.ExecutePlugin(c.Request.Context(), appID, name, req.Params); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 将操作类型和会话ID添加到参数中
-	req.Params["operation"] = req.Operation
-	req.Params["session_id"] = session.ID
-
-	// 执行插件
-	if err := h.pluginManager.ExecutePlugin(c.Request.Context(), appID, name, req.Params); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	// 如果是verify操作且执行成功，更新插件状态为已完成
-	if req.Operation == "verify" {
-		if err := h.verifyService.UpdatePluginStatusBySession(
-			c.Request.Context(),
-			session.ID,
-			name,
-			model.PluginStatusCompleted,
-		); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update plugin status"})
+	// 如果有验证会话，更新验证状态
+	if session != nil {
+		if err := h.verifyService.UpdatePluginStatusBySession(c.Request.Context(), session.ID, name, model.PluginStatusCompleted); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 	}
 
-	c.Status(http.StatusOK)
+	// 返回执行结果
+	c.JSON(http.StatusOK, req.Params)
 }
 
 // PluginInfo 插件信息
@@ -352,4 +372,47 @@ func (h *PluginHandler) UpdatePluginConfig(c *gin.Context) {
 	}
 
 	c.Status(http.StatusOK)
+}
+
+// ListAllPlugins 列出所有注册的插件，无论它们是否已配置
+func (h *PluginHandler) ListAllPlugins(c *gin.Context) {
+	// 获取所有已注册的插件
+	registeredPlugins := types.GetRegisteredPlugins()
+
+	// 构建插件信息列表
+	var pluginInfos []PluginInfo
+	for _, regPlugin := range registeredPlugins {
+		// 创建一个临时插件实例来获取元数据
+		plugin := regPlugin.Factory()
+
+		// 获取插件元数据
+		metadata := plugin.GetMetadata()
+
+		// 构建插件信息
+		pluginInfo := PluginInfo{
+			Name:        metadata.Name,
+			Description: metadata.Description,
+			Version:     metadata.Version,
+			Author:      metadata.Author,
+			Required:    metadata.Required,
+			Stage:       metadata.Stage,
+			Actions:     metadata.Actions,
+			Operations:  metadata.Operations,
+			Enabled:     false, // 默认为不启用，除非在配置中找到
+		}
+
+		// 如果是SmartPlugin,添加API信息
+		if sp, ok := plugin.(types.SmartPlugin); ok {
+			pluginInfo.APIs = sp.GetAPIInfo()
+		}
+
+		pluginInfos = append(pluginInfos, pluginInfo)
+	}
+
+	c.JSON(http.StatusOK, pluginInfos)
+}
+
+// GetPlugin 获取插件实例
+func (h *PluginHandler) GetPlugin(appID string, name string) (types.Plugin, bool) {
+	return h.pluginManager.GetPlugin(appID, name)
 }

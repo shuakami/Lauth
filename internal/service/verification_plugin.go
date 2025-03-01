@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"lauth/internal/model"
@@ -28,43 +29,6 @@ func newVerificationPluginService(
 		pluginStatusRepo: pluginStatusRepo,
 		sessionRepo:      sessionRepo,
 	}
-}
-
-// checkPluginStatus 检查插件状态是否已完成
-func (s *verificationPluginService) checkPluginStatus(statusMap map[string]*model.PluginStatus, pluginName string) bool {
-	if status, exists := statusMap[pluginName]; exists && status.Status == model.PluginStatusCompleted {
-		fmt.Printf("插件 %s 已完成验证,跳过\n", pluginName)
-		return true
-	}
-	return false
-}
-
-// checkPluginActionMatch 检查插件是否适用于当前action
-func (s *verificationPluginService) checkPluginActionMatch(actions []string, targetAction string) bool {
-	for _, a := range actions {
-		if a == targetAction {
-			return true
-		}
-	}
-	return false
-}
-
-// getPluginStatusMap 获取插件状态映射
-func (s *verificationPluginService) getPluginStatusMap(ctx context.Context, appID, userID, action string) (map[string]*model.PluginStatus, error) {
-	if userID == "" {
-		return make(map[string]*model.PluginStatus), nil
-	}
-
-	statuses, err := s.pluginStatusRepo.ListStatus(ctx, appID, userID, action)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get plugin statuses: %v", err)
-	}
-
-	statusMap := make(map[string]*model.PluginStatus)
-	for _, status := range statuses {
-		statusMap[status.Plugin] = status
-	}
-	return statusMap, nil
 }
 
 // checkPluginVerification 检查插件是否需要验证
@@ -96,26 +60,11 @@ func (s *verificationPluginService) GetRequiredPlugins(ctx context.Context, appI
 		return nil, err
 	}
 
-	// 获取插件状态映射
-	statusMap, err := s.getPluginStatusMap(ctx, appID, userID, action)
-	if err != nil {
-		return nil, err
-	}
-
 	// 根据action筛选需要的插件
 	var requirements []model.PluginRequirement
 	for _, config := range configs {
-		// 检查插件是否启用且适用于当前action
+		// 检查插件是否启用
 		if !config.Enabled {
-			continue
-		}
-
-		if !s.checkPluginActionMatch(config.Actions, action) {
-			continue
-		}
-
-		// 检查插件状态是否已完成
-		if s.checkPluginStatus(statusMap, config.Name) {
 			continue
 		}
 
@@ -125,26 +74,55 @@ func (s *verificationPluginService) GetRequiredPlugins(ctx context.Context, appI
 			continue
 		}
 
-		// 检查插件是否需要验证
+		// 获取插件元数据
+		metadata := plugin.GetMetadata()
+
+		// 检查插件是否适用于当前action
+		actionMatch := false
+		for _, a := range metadata.Actions {
+			if a == action {
+				actionMatch = true
+				break
+			}
+		}
+		if !actionMatch {
+			continue
+		}
+
+		// 如果是必需插件，直接添加到列表，不检查 NeedsVerification
+		if metadata.Required {
+			log.Printf("[Plugin] 必需插件 %s 添加到验证列表", config.Name)
+			requirements = append(requirements, model.PluginRequirement{
+				Name:     config.Name,
+				Required: true,
+				Stage:    metadata.Stage,
+				Status:   model.PluginStatusPending,
+			})
+			continue
+		}
+
+		// 对于可选插件，检查是否需要验证
 		needsVerify, err := s.checkPluginVerification(ctx, plugin, userID, action, verificationContext)
 		if err != nil {
 			return nil, err
 		}
 
-		// 如果插件不需要验证，跳过
 		if !needsVerify {
 			continue
 		}
 
-		// 添加到需求列表
+		log.Printf("[Plugin] 可选插件 %s 需要验证，添加到验证列表", config.Name)
 		requirements = append(requirements, model.PluginRequirement{
 			Name:     config.Name,
-			Required: config.Required,
-			Stage:    config.Stage,
+			Required: false,
+			Stage:    metadata.Stage,
 			Status:   model.PluginStatusPending,
 		})
 	}
 
+	if len(requirements) > 0 {
+		log.Printf("[Plugin] 需要验证的插件列表: %+v", requirements)
+	}
 	return requirements, nil
 }
 
@@ -171,25 +149,239 @@ func (s *verificationPluginService) buildStatusMaps(statuses []*model.PluginStat
 	return statusMap, verificationMap
 }
 
+// pluginValidator 插件验证器
+type pluginValidator struct {
+	appID           string
+	userID          *string
+	action          string
+	plugin          types.Plugin
+	verificationMap map[string]*model.PluginStatus
+}
+
+// newPluginValidator 创建插件验证器
+func newPluginValidator(appID string, userID *string, action string, plugin types.Plugin, verificationMap map[string]*model.PluginStatus) *pluginValidator {
+	return &pluginValidator{
+		appID:           appID,
+		userID:          userID,
+		action:          action,
+		plugin:          plugin,
+		verificationMap: verificationMap,
+	}
+}
+
+// validate 验证插件状态
+func (v *pluginValidator) validate(ctx context.Context) (bool, error) {
+	// 获取插件实例
+	if v.plugin == nil {
+		return false, nil
+	}
+
+	// 验证当前验证是否有效
+	valid, err := v.validatePluginVerification(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to validate plugin verification: %v", err)
+	}
+
+	return valid, nil
+}
+
 // validatePluginVerification 验证插件验证状态
-func (s *verificationPluginService) validatePluginVerification(ctx context.Context, userID *string, action string, plugin types.Plugin, verification *model.PluginStatus) (bool, error) {
-	verifiable, ok := plugin.(types.Verifiable)
+func (v *pluginValidator) validatePluginVerification(ctx context.Context) (bool, error) {
+	verifiable, ok := v.plugin.(types.Verifiable)
 	if !ok {
 		return true, nil
 	}
 
-	if verification != nil {
-		var uid string
-		if userID != nil {
-			uid = *userID
-		}
-		valid, err := verifiable.ValidateVerification(ctx, uid, action, verification.ID)
-		if err != nil {
-			return false, fmt.Errorf("failed to validate verification: %v", err)
-		}
-		return valid, nil
+	// 获取当前验证记录
+	verification := v.verificationMap[v.plugin.GetMetadata().Name]
+
+	// 如果没有验证记录,说明未验证
+	if verification == nil {
+		return false, nil
 	}
-	return true, nil
+
+	var uid string
+	if v.userID != nil {
+		uid = *v.userID
+	}
+
+	// 验证记录是否有效
+	valid, err := verifiable.ValidateVerification(ctx, uid, v.action, verification.ID)
+	if err != nil {
+		return false, fmt.Errorf("failed to validate verification: %v", err)
+	}
+	return valid, nil
+}
+
+// validateRequiredPlugins 验证必需插件
+func (s *verificationPluginService) validateRequiredPlugins(
+	ctx context.Context,
+	session *model.VerificationSession,
+	requirements []model.PluginRequirement,
+	statusMap map[string]string,
+	verificationMap map[string]*model.PluginStatus,
+) (bool, *model.PluginRequirement, error) {
+	allCompleted := true
+	var nextPlugin *model.PluginRequirement
+
+	for i := range requirements {
+		if !requirements[i].Required {
+			continue
+		}
+
+		completed, next, err := s.validateSinglePlugin(ctx, session, &requirements[i], statusMap, verificationMap)
+		if err != nil {
+			return false, nil, err
+		}
+
+		if !completed {
+			allCompleted = false
+			if nextPlugin == nil {
+				nextPlugin = next
+			}
+		}
+	}
+
+	return allCompleted, nextPlugin, nil
+}
+
+// validateOptionalPlugins 验证可选插件
+func (s *verificationPluginService) validateOptionalPlugins(
+	ctx context.Context,
+	session *model.VerificationSession,
+	requirements []model.PluginRequirement,
+	statusMap map[string]string,
+	verificationMap map[string]*model.PluginStatus,
+) (*model.PluginRequirement, error) {
+	var nextPlugin *model.PluginRequirement
+
+	for i := range requirements {
+		if requirements[i].Required {
+			continue
+		}
+
+		completed, next, err := s.validateSinglePlugin(ctx, session, &requirements[i], statusMap, verificationMap)
+		if err != nil {
+			return nil, err
+		}
+
+		if !completed && nextPlugin == nil {
+			nextPlugin = next
+		}
+	}
+
+	return nextPlugin, nil
+}
+
+// validateSinglePlugin 验证单个插件
+func (s *verificationPluginService) validateSinglePlugin(
+	ctx context.Context,
+	session *model.VerificationSession,
+	requirement *model.PluginRequirement,
+	statusMap map[string]string,
+	verificationMap map[string]*model.PluginStatus,
+) (bool, *model.PluginRequirement, error) {
+	// 检查插件状态
+	status, exists := statusMap[requirement.Name]
+	if exists && status == model.PluginStatusCompleted {
+		requirement.Status = model.PluginStatusCompleted
+		log.Printf("[Plugin] 插件 %s 验证通过", requirement.Name)
+		return true, nil, nil
+	}
+
+	// 获取插件实例
+	plugin, exists := s.pluginManager.GetPlugin(session.AppID, requirement.Name)
+	if !exists {
+		return true, nil, nil
+	}
+
+	// 验证当前验证是否有效
+	validator := newPluginValidator(session.AppID, session.UserID, session.Action, plugin, verificationMap)
+	valid, err := validator.validate(ctx)
+	if err != nil {
+		return false, nil, err
+	}
+
+	if valid {
+		requirement.Status = model.PluginStatusCompleted
+		log.Printf("[Plugin] 插件 %s 验证通过", requirement.Name)
+		return true, nil, nil
+	}
+
+	log.Printf("[Plugin] 插件 %s 需要验证", requirement.Name)
+	return false, requirement, nil
+}
+
+// ValidatePluginStatusBySession 通过会话验证插件状态
+func (s *verificationPluginService) ValidatePluginStatusBySession(ctx context.Context, sessionID string) (*VerificationStatus, error) {
+	// 获取会话
+	session, err := s.getSessionByID(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 获取所有插件的验证状态
+	statuses, err := s.getStatusesBySession(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+
+	// 构建状态映射
+	statusMap, verificationMap := s.buildStatusMaps(statuses)
+
+	// 获取需要验证的插件列表
+	var userID string
+	if session.UserID != nil {
+		userID = *session.UserID
+	} else if session.Identifier != "" {
+		userID = session.Identifier
+	}
+	requirements, err := s.GetRequiredPlugins(ctx, session.AppID, session.Action, session.Context, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Printf("Required plugins: %+v", requirements)
+
+	// 先验证必需插件
+	allCompleted, nextPlugin, err := s.validateRequiredPlugins(ctx, session, requirements, statusMap, verificationMap)
+	if err != nil {
+		return nil, err
+	}
+
+	// 如果所有必需插件都已完成，再验证可选插件
+	if allCompleted && nextPlugin == nil {
+		nextPlugin, err = s.validateOptionalPlugins(ctx, session, requirements, statusMap, verificationMap)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// 创建验证状态响应
+	var status *VerificationStatus
+	if allCompleted && nextPlugin == nil {
+		status = s.createCompletedStatus()
+	} else {
+		status = s.createPendingStatus(nextPlugin)
+	}
+	status.Plugins = requirements
+
+	log.Printf("Verification status: completed=%v, status=%s, nextPlugin=%+v",
+		status.Completed, status.Status, status.NextPlugin)
+
+	return status, nil
+}
+
+// ValidatePluginStatus 验证插件状态
+func (s *verificationPluginService) ValidatePluginStatus(ctx context.Context, appID string, userID string, action string) (*VerificationStatus, error) {
+	// 获取活动会话
+	session, err := s.getActiveSession(ctx, appID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 使用会话ID验证插件状态
+	return s.ValidatePluginStatusBySession(ctx, session.ID)
 }
 
 // getSessionByID 获取并验证会话
@@ -235,70 +427,4 @@ func (s *verificationPluginService) createPendingStatus(nextPlugin *model.Plugin
 		NextPlugin: nextPlugin,
 		UpdatedAt:  time.Now(),
 	}
-}
-
-// ValidatePluginStatusBySession 通过会话验证插件状态
-func (s *verificationPluginService) ValidatePluginStatusBySession(ctx context.Context, sessionID string) (*VerificationStatus, error) {
-	// 获取并验证会话
-	session, err := s.getSessionByID(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-
-	// 获取需要的插件
-	requirements, err := s.GetRequiredPlugins(ctx, session.AppID, session.Action, session.Context, "")
-	if err != nil {
-		return nil, err
-	}
-
-	// 如果没有需要的插件，直接返回完成
-	if len(requirements) == 0 {
-		return s.createCompletedStatus(), nil
-	}
-
-	// 获取所有插件的状态
-	statuses, err := s.getStatusesBySession(ctx, session)
-	if err != nil {
-		return nil, err
-	}
-
-	// 构建状态映射
-	statusMap, verificationMap := s.buildStatusMaps(statuses)
-
-	// 检查每个必需插件的状态
-	for _, req := range requirements {
-		status, exists := statusMap[req.Name]
-		if !exists || status != model.PluginStatusCompleted {
-			return s.createPendingStatus(&req), nil
-		}
-
-		// 获取插件实例
-		plugin, exists := s.pluginManager.GetPlugin(session.AppID, req.Name)
-		if !exists {
-			continue
-		}
-
-		// 验证当前验证是否有效
-		valid, err := s.validatePluginVerification(ctx, session.UserID, session.Action, plugin, verificationMap[req.Name])
-		if err != nil {
-			return nil, err
-		}
-		if !valid {
-			return s.createPendingStatus(&req), nil
-		}
-	}
-
-	return s.createCompletedStatus(), nil
-}
-
-// ValidatePluginStatus 验证插件状态
-func (s *verificationPluginService) ValidatePluginStatus(ctx context.Context, appID string, userID string, action string) (*VerificationStatus, error) {
-	// 获取活动会话
-	session, err := s.getActiveSession(ctx, appID, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	// 使用会话ID验证插件状态
-	return s.ValidatePluginStatusBySession(ctx, session.ID)
 }
