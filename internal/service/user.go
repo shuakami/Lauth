@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"time"
 
 	"lauth/internal/model"
 	"lauth/internal/repository"
@@ -22,6 +23,7 @@ type UserService interface {
 	GetUserWithProfile(ctx context.Context, id string) (*model.User, *model.Profile, error)
 	UpdateUser(ctx context.Context, id string, req *model.UpdateUserRequest) (*model.User, error)
 	UpdatePassword(ctx context.Context, id string, req *model.UpdatePasswordRequest) error
+	FirstChangePassword(ctx context.Context, id string, req *model.FirstChangePasswordRequest) error
 	DeleteUser(ctx context.Context, id string) error
 	ListUsers(ctx context.Context, appID string, page, pageSize int) ([]model.User, int64, error)
 	ValidateUser(ctx context.Context, appID string, username, password string) (*model.User, error)
@@ -134,11 +136,52 @@ func (s *userService) UpdatePassword(ctx context.Context, id string, req *model.
 
 	// 更新密码(让model层处理哈希)
 	user.Password = req.NewPassword
+
+	// 重置首次登录标志和密码过期时间
+	user.IsFirstLogin = false
+
+	// 密码过期时间设置为90天后
+	expireTime := time.Now().Add(90 * 24 * time.Hour)
+	user.PasswordExpiresAt = &expireTime
+
 	if err := s.userRepo.Update(ctx, user); err != nil {
 		log.Printf("更新密码失败: %v", err)
 		return err
 	}
-	log.Printf("密码更新成功")
+	log.Printf("密码更新成功，首次登录标志已重置")
+
+	return nil
+}
+
+// FirstChangePassword 首次修改密码（不需要验证旧密码）
+func (s *userService) FirstChangePassword(ctx context.Context, id string, req *model.FirstChangePasswordRequest) error {
+	user, err := s.userRepo.GetByID(ctx, id)
+	if err != nil {
+		log.Printf("获取用户失败: %v", err)
+		return err
+	}
+	if user == nil {
+		log.Printf("用户不存在: %s", id)
+		return ErrUserNotFound
+	}
+
+	log.Printf("找到用户: id=%s, username=%s", user.ID, user.Username)
+
+	// 更新密码(让model层处理哈希)
+	user.Password = req.NewPassword
+
+	// 重置首次登录标志和密码过期时间
+	user.IsFirstLogin = false
+
+	// 密码过期时间设置为90天后
+	expireTime := time.Now().Add(90 * 24 * time.Hour)
+	user.PasswordExpiresAt = &expireTime
+
+	if err := s.userRepo.Update(ctx, user); err != nil {
+		log.Printf("更新密码失败: %v", err)
+		return err
+	}
+	log.Printf("密码更新成功，首次登录标志已重置")
 
 	return nil
 }

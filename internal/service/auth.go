@@ -6,6 +6,8 @@ import (
 
 	"lauth/internal/model"
 	"lauth/internal/repository"
+
+	"gorm.io/gorm"
 )
 
 var (
@@ -52,9 +54,11 @@ func NewAuthService(
 	verificationSvc VerificationService,
 	profileSvc ProfileService,
 	locationSvc LoginLocationService,
+	superAdminSvc SuperAdminService,
+	db *gorm.DB,
 ) AuthService {
 	// 创建子服务实例
-	accountService := newAuthAccountService(userRepo, appRepo, tokenService, verificationSvc, profileSvc, locationSvc)
+	accountService := newAuthAccountService(userRepo, appRepo, tokenService, verificationSvc, profileSvc, locationSvc, superAdminSvc, db)
 	tokenSvc := newAuthTokenService(userRepo, tokenService)
 	validationService := newAuthValidationService(userRepo, tokenService, ruleService)
 

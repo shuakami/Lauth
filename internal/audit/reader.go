@@ -224,6 +224,8 @@ func (r *Reader) isFileRelevant(fileInfo LogFileInfo, params QueryParams) bool {
 }
 
 // listApps 列出所有应用
+// ⚠️注意：此方法仅基于审计日志目录结构，返回有日志记录的应用ID
+// ⚠️如果应用尚未产生审计日志，则不会出现在返回结果中
 func (r *Reader) listApps() ([]string, error) {
 	entries, err := os.ReadDir(r.baseDir)
 	if err != nil {
@@ -243,6 +245,9 @@ func (r *Reader) listApps() ([]string, error) {
 }
 
 // ListApps 获取所有应用ID列表
+// ⚠️注意：此方法仅返回在审计日志目录中有对应子目录的应用ID，不是数据库中的所有应用
+// ⚠️如果需要获取数据库中的所有应用，请使用AppService.ListApps
+// ⚠️这可能导致某些实际存在于数据库但尚未产生审计日志的应用不会被返回
 func (r *Reader) ListApps() ([]string, error) {
 	return r.listApps()
 }

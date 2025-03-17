@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 
 	"lauth/internal/model"
 	"lauth/internal/repository"
@@ -13,15 +15,17 @@ import (
 
 // authAccountService 账号服务
 type authAccountService struct {
-	userRepo        repository.UserRepository
-	appRepo         repository.AppRepository
-	tokenService    TokenService
-	verificationSvc VerificationService
-	profileSvc      ProfileService
-	locationSvc     LoginLocationService
+	userRepo          repository.UserRepository
+	appRepo           repository.AppRepository
+	tokenService      TokenService
+	verificationSvc   VerificationService
+	profileSvc        ProfileService
+	locationSvc       LoginLocationService
+	superAdminService SuperAdminService
+	db                *gorm.DB
 }
 
-// newAuthAccountService 创建账号服务实例
+// newAuthAccountService 创建认证账号服务实例
 func newAuthAccountService(
 	userRepo repository.UserRepository,
 	appRepo repository.AppRepository,
@@ -29,14 +33,18 @@ func newAuthAccountService(
 	verificationSvc VerificationService,
 	profileSvc ProfileService,
 	locationSvc LoginLocationService,
+	superAdminService SuperAdminService,
+	db *gorm.DB,
 ) *authAccountService {
 	return &authAccountService{
-		userRepo:        userRepo,
-		appRepo:         appRepo,
-		tokenService:    tokenService,
-		verificationSvc: verificationSvc,
-		profileSvc:      profileSvc,
-		locationSvc:     locationSvc,
+		userRepo:          userRepo,
+		appRepo:           appRepo,
+		tokenService:      tokenService,
+		verificationSvc:   verificationSvc,
+		profileSvc:        profileSvc,
+		locationSvc:       locationSvc,
+		superAdminService: superAdminService,
+		db:                db,
 	}
 }
 
@@ -112,21 +120,46 @@ func (s *authAccountService) handleVerification(ctx context.Context, vCtx *verif
 
 // buildUserResponse 构建用户响应
 func (s *authAccountService) buildUserResponse(user *model.User, tokenPair *model.TokenPair, plugins []model.PluginRequirement, verifyStatus *VerificationStatus, sessionID string) *model.ExtendedLoginResponse {
+	var lastLoginStr *string
+	if user.LastLoginAt != nil {
+		formatted := user.LastLoginAt.Format("2006-01-02T15:04:05Z07:00")
+		lastLoginStr = &formatted
+	}
+
+	// 转换密码过期时间
+	var passwordExpiresStr *string
+	if user.PasswordExpiresAt != nil {
+		formatted := user.PasswordExpiresAt.Format("2006-01-02T15:04:05Z07:00")
+		passwordExpiresStr = &formatted
+	}
+
+	// 只检查是否是首次登录，不再检查密码是否过期
+	// 密码过期信息由前端根据PasswordExpiresAt自行判断
+	needChangePassword := user.IsFirstLogin
+
 	response := &model.ExtendedLoginResponse{
 		User: model.UserResponse{
-			ID:        user.ID,
-			AppID:     user.AppID,
-			Username:  user.Username,
-			Nickname:  user.Nickname,
-			Email:     user.Email,
-			Phone:     user.Phone,
-			Status:    user.Status,
-			CreatedAt: user.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			UpdatedAt: user.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			ID:                 user.ID,
+			AppID:              user.AppID,
+			Username:           user.Username,
+			Nickname:           user.Nickname,
+			Email:              user.Email,
+			Phone:              user.Phone,
+			Status:             user.Status,
+			IsFirstLogin:       user.IsFirstLogin,
+			LastLoginAt:        lastLoginStr,
+			PasswordExpiresAt:  passwordExpiresStr,
+			NeedChangePassword: needChangePassword,
+			CreatedAt:          user.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			UpdatedAt:          user.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		},
-		Plugins:    plugins,
-		NextPlugin: verifyStatus.NextPlugin,
-		SessionID:  sessionID,
+		Plugins:   plugins,
+		SessionID: sessionID,
+	}
+
+	// 安全地设置NextPlugin，避免nil指针引用
+	if verifyStatus != nil {
+		response.NextPlugin = verifyStatus.NextPlugin
 	}
 
 	if tokenPair != nil {
@@ -134,8 +167,10 @@ func (s *authAccountService) buildUserResponse(user *model.User, tokenPair *mode
 		response.RefreshToken = tokenPair.RefreshToken
 		response.ExpiresIn = int64(tokenPair.AccessTokenExpireIn.Seconds())
 		response.AuthStatus = model.PluginStatusCompleted
-	} else {
+	} else if verifyStatus != nil {
 		response.AuthStatus = verifyStatus.Status
+	} else {
+		response.AuthStatus = model.PluginStatusCompleted
 	}
 
 	return response
@@ -226,45 +261,90 @@ func (s *authAccountService) Register(ctx context.Context, appID string, req *mo
 // Login 用户登录
 func (s *authAccountService) Login(ctx context.Context, appID string, req *model.LoginRequest) (*model.ExtendedLoginResponse, error) {
 	// 验证用户名密码
+	log.Printf("[DEBUG] 尝试登录用户: %s, AppID: %s", req.Username, appID)
 	user, err := s.userRepo.GetByUsername(ctx, appID, req.Username)
 	if err != nil {
+		log.Printf("[ERROR] 获取用户时出错: %v", err)
 		return nil, err
 	}
 	if user == nil {
+		log.Printf("[ERROR] 用户不存在: %s", req.Username)
 		return nil, ErrInvalidCredentials
 	}
 
+	log.Printf("[DEBUG] 找到用户: ID=%s, 用户名=%s, 状态=%d", user.ID, user.Username, user.Status)
+
 	// 验证密码
+	log.Printf("[DEBUG] 正在验证密码，存储的密码哈希长度: %d", len(user.Password))
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		log.Printf("[ERROR] 密码验证失败: %v", err)
 		return nil, ErrInvalidCredentials
 	}
+	log.Printf("[DEBUG] 密码验证成功")
 
 	// 检查用户状态
 	if user.Status == model.UserStatusDisabled {
+		log.Printf("[ERROR] 用户已禁用")
 		return nil, ErrUserDisabled
 	}
 
-	// 处理验证流程
-	vCtx := s.buildVerificationContext(appID, user.ID, "login", req)
-	session, plugins, verifyStatus, err := s.handleVerification(ctx, vCtx)
-	if err != nil {
-		return nil, err
+	// 检查是否是超级管理员
+	user.IsSuperAdmin = false
+	if userID := user.ID; userID != "" {
+		// 使用超级管理员服务检查用户是否是超级管理员
+		isSuperAdmin, err := s.superAdminService.IsSuperAdmin(ctx, userID)
+		if err != nil {
+			log.Printf("[ERROR] 检查超级管理员状态失败: %v", err)
+		} else if isSuperAdmin {
+			user.IsSuperAdmin = true
+			log.Printf("[DEBUG] 用户是超级管理员")
+		}
 	}
 
-	// 如果需要验证，返回验证状态
-	if len(plugins) > 0 && !verifyStatus.Completed {
-		return s.buildUserResponse(user, nil, plugins, verifyStatus, session.ID), ErrPluginRequired
+	// 更新用户的最后登录时间
+	now := time.Now()
+	// 同时更新内存中的用户对象
+	user.LastLoginAt = &now
+	// 在数据库中更新最后登录时间，但不触发密码哈希
+	if err := s.userRepo.UpdateLastLogin(ctx, user.ID, now); err != nil {
+		// 仅记录错误，不影响登录流程
+		log.Printf("[ERROR] 更新最后登录时间失败: %v", err)
+	}
+
+	// 处理验证流程
+	// 如果是首次登录的超级管理员，跳过验证
+	skipVerification := user.IsSuperAdmin && user.IsFirstLogin
+	log.Printf("[DEBUG] 是否跳过验证: %v (IsSuperAdmin=%v, IsFirstLogin=%v)",
+		skipVerification, user.IsSuperAdmin, user.IsFirstLogin)
+
+	if !skipVerification {
+		vCtx := s.buildVerificationContext(appID, user.ID, "login", req)
+		session, plugins, verifyStatus, err := s.handleVerification(ctx, vCtx)
+		if err != nil {
+			log.Printf("[ERROR] 处理验证失败: %v", err)
+			return nil, err
+		}
+
+		// 如果需要验证，返回验证状态
+		if len(plugins) > 0 && !verifyStatus.Completed {
+			log.Printf("[DEBUG] 需要额外验证，插件数量: %d", len(plugins))
+			return s.buildUserResponse(user, nil, plugins, verifyStatus, session.ID), ErrPluginRequired
+		}
 	}
 
 	// 验证完成，生成token
+	log.Printf("[DEBUG] 验证完成，正在生成token")
 	tokenPair, err := s.tokenService.GenerateTokenPair(ctx, user, "read")
 	if err != nil {
+		log.Printf("[ERROR] 生成token失败: %v", err)
 		return nil, err
 	}
 
 	// 清理验证状态
-	if err := s.verificationSvc.ClearVerification(ctx, appID, user.ID, "login"); err != nil {
-		log.Printf("Failed to clear verification: %v", err)
+	if !skipVerification {
+		if err := s.verificationSvc.ClearVerification(ctx, appID, user.ID, "login"); err != nil {
+			log.Printf("Failed to clear verification: %v", err)
+		}
 	}
 
 	// 记录登录位置
@@ -274,5 +354,5 @@ func (s *authAccountService) Login(ctx context.Context, appID string, req *model
 		}
 	}
 
-	return s.buildUserResponse(user, tokenPair, plugins, verifyStatus, session.ID), nil
+	return s.buildUserResponse(user, tokenPair, nil, nil, ""), nil
 }

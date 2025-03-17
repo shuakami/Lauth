@@ -36,6 +36,9 @@ type SystemStatus struct {
 	Apps           []string
 	UserCount      int64
 	LogCount       int64
+	NewAdmin       bool   // 是否新创建的超级管理员
+	AdminUser      string // 超级管理员用户名
+	AdminPass      string // 超级管理员密码
 }
 
 // PrintCopyright 打印版权信息
@@ -136,6 +139,18 @@ func printFrame(status SystemStatus) {
 	titleColor.Print("Lauth")
 	defaultColor.Print(" by ")
 	defaultColor.Printf("Shuakami/Luoxiaohei\n")
+
+	// 如果有新创建的超级管理员，显示凭据
+	if status.NewAdmin && status.AdminUser != "" && status.AdminPass != "" {
+		fmt.Println()
+		alertColor := color.New(color.FgHiRed, color.Bold)
+
+		alertColor.Println("!!! SUPER ADMIN CREDENTIALS CREATED !!!")
+		alertColor.Printf("Username: %s\n", status.AdminUser)
+		alertColor.Printf("Password: %s\n", status.AdminPass)
+		alertColor.Println("PLEASE CHANGE YOUR PASSWORD AFTER FIRST LOGIN!")
+		alertColor.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+	}
 
 	fmt.Println()
 }

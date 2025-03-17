@@ -37,15 +37,17 @@ type RoleService interface {
 
 // roleService 角色服务实现
 type roleService struct {
-	roleRepo       repository.RoleRepository
-	permissionRepo repository.PermissionRepository
+	roleRepo          repository.RoleRepository
+	permissionRepo    repository.PermissionRepository
+	superAdminService SuperAdminService
 }
 
 // NewRoleService 创建角色服务实例
-func NewRoleService(roleRepo repository.RoleRepository, permissionRepo repository.PermissionRepository) RoleService {
+func NewRoleService(roleRepo repository.RoleRepository, permissionRepo repository.PermissionRepository, superAdminService SuperAdminService) RoleService {
 	return &roleService{
-		roleRepo:       roleRepo,
-		permissionRepo: permissionRepo,
+		roleRepo:          roleRepo,
+		permissionRepo:    permissionRepo,
+		superAdminService: superAdminService,
 	}
 }
 
@@ -224,6 +226,15 @@ func (s *roleService) GetUsers(ctx context.Context, roleID string) ([]model.User
 
 // HasPermission 检查用户是否有指定权限
 func (s *roleService) HasPermission(ctx context.Context, userID string, permissionCode string) (bool, error) {
+	// 检查用户是否是超级管理员
+	if s.superAdminService != nil {
+		isSuperAdmin, err := s.superAdminService.IsSuperAdmin(ctx, userID)
+		if err == nil && isSuperAdmin {
+			// 超级管理员拥有所有权限
+			return true, nil
+		}
+	}
+
 	// 获取用户的所有角色
 	roles, err := s.roleRepo.GetUserRoles(ctx, userID, "") // 暂时传空字符串作为appID
 	if err != nil {

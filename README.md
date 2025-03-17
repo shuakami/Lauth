@@ -22,6 +22,7 @@ LAuth is an enterprise-grade unified authentication platform that provides centr
 
 - **Multi-Application Support**: Manage authentication for multiple applications from a single platform
 - **High Performance**: Built with Go, optimized for speed and resource efficiency
+- **Super Administrator**: Platform-wide administration capabilities that transcend application boundaries
 - **Advanced Permission System**:
   - Role-Based Access Control (RBAC)
   - Attribute-Based Access Control (ABAC)
@@ -287,6 +288,13 @@ go run main.go
 - `GET /api/v1/audit/logs/verify` - Verify log file integrity
 - `GET /api/v1/audit/stats` - Get audit statistics
 - `GET /api/v1/audit/ws` - WebSocket connection for real-time logs
+
+### Super Administrator Management
+
+- `POST /api/v1/system/super-admins` - Add a user as super administrator
+- `GET /api/v1/system/super-admins` - List all super administrators
+- `DELETE /api/v1/system/super-admins/:user_id` - Remove super administrator privileges
+- `GET /api/v1/system/super-admins/check/:user_id` - Check if a user is a super administrator
 
 ## Configuration
 

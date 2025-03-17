@@ -29,18 +29,27 @@ type UpdatePasswordRequest struct {
 	NewPassword string `json:"new_password" binding:"required"`
 }
 
+// FirstChangePasswordRequest 首次修改密码请求（不需要旧密码）
+type FirstChangePasswordRequest struct {
+	NewPassword string `json:"new_password" binding:"required"`
+}
+
 // UserResponse 用户响应
 type UserResponse struct {
-	ID        string     `json:"id"`
-	AppID     string     `json:"app_id"`
-	Username  string     `json:"username"`
-	Nickname  string     `json:"nickname"`
-	Email     string     `json:"email"`
-	Phone     string     `json:"phone"`
-	Status    UserStatus `json:"status"`
-	Profile   *Profile   `json:"profile,omitempty"`
-	CreatedAt string     `json:"created_at"`
-	UpdatedAt string     `json:"updated_at"`
+	ID                 string     `json:"id"`
+	AppID              string     `json:"app_id"`
+	Username           string     `json:"username"`
+	Nickname           string     `json:"nickname"`
+	Email              string     `json:"email"`
+	Phone              string     `json:"phone"`
+	Status             UserStatus `json:"status"`
+	Profile            *Profile   `json:"profile,omitempty"`
+	IsFirstLogin       bool       `json:"is_first_login"`
+	LastLoginAt        *string    `json:"last_login_at,omitempty"`
+	PasswordExpiresAt  *string    `json:"password_expires_at,omitempty"` // 密码过期时间
+	NeedChangePassword bool       `json:"need_change_password"`
+	CreatedAt          string     `json:"created_at"`
+	UpdatedAt          string     `json:"updated_at"`
 }
 
 // LoginRequest 登录请求

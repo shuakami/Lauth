@@ -34,6 +34,7 @@ func InitDB(cfg *database.Config) (*gorm.DB, error) {
 		&model.PluginUserConfig{},
 		&model.PluginVerificationRecord{},
 		&model.LoginLocation{},
+		&model.SuperAdmin{},
 	); err != nil {
 		return nil, err
 	}

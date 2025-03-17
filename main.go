@@ -59,8 +59,12 @@ func main() {
 	repos := boot.InitRepositories(db, mongodb)
 
 	// 初始化服务层（Services）
-	services, err := boot.InitServices(cfg, repos, redisClient)
+	services, err := boot.InitServices(cfg, repos, redisClient, db)
 	checkFatalErr(err, "Failed to init services")
+
+	// 初始化超级管理员（如果不存在）
+	adminUser, adminPass, isNewAdmin, err := services.SuperAdminService.CheckAndInitSuperAdmin(context.Background())
+	checkFatalErr(err, "Failed to init super admin")
 
 	// 初始化审计组件（Audit Components）
 	auditComponents, err := boot.InitAudit(cfg, services.RoleService)
@@ -74,14 +78,22 @@ func main() {
 
 	// 初始化 Gin 引擎和路由（Router）
 	r := gin.Default()
-	_ = boot.InitRouter(r, handlers, services.TokenService, services.IPLocationService, auditComponents, cfg)
+	_ = boot.InitRouter(r, handlers, services.TokenService, services.IPLocationService, auditComponents, cfg, services)
 
 	// 统计相关系统状态信息（System Status）
 	userCount, _ := repos.UserRepo.Count(context.Background())
 
+	// 从数据库获取应用列表
+	dbApps, _, _ := services.AppService.ListApps(context.Background(), 0, 100)
+	appsIDs := make([]string, len(dbApps))
+	for i, app := range dbApps {
+		appsIDs[i] = app.ID
+	}
+
+	// 获取审计日志相关信息，仅用于统计日志数量
 	var totalLogs int64
-	apps, _ := auditComponents.Reader.ListApps()
-	for _, appID := range apps {
+	auditApps, _ := auditComponents.Reader.ListApps()
+	for _, appID := range auditApps {
 		count, err := auditComponents.Reader.GetLogCount(appID)
 		if err == nil {
 			totalLogs += count
@@ -129,9 +141,12 @@ func main() {
 		PostgresStatus: db != nil,
 		Plugins:        pluginNames,
 		PluginPaths:    pluginPaths,
-		Apps:           apps,
+		Apps:           appsIDs,
 		UserCount:      userCount,
 		LogCount:       totalLogs,
+		NewAdmin:       isNewAdmin,
+		AdminUser:      adminUser,
+		AdminPass:      adminPass,
 	}
 	copyright.PrintCopyright(status)
 

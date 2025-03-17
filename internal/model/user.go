@@ -27,6 +27,12 @@ type User struct {
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
 
+	// 首次登录和密码安全
+	IsFirstLogin      bool       `json:"is_first_login" gorm:"default:true"`      // 是否首次登录
+	PasswordExpiresAt *time.Time `json:"password_expires_at" gorm:"default:null"` // 密码过期时间
+	LastLoginAt       *time.Time `json:"last_login_at" gorm:"default:null"`       // 最后登录时间
+	IsSuperAdmin      bool       `json:"-" gorm:"-"`                              // 是否是超级管理员（非数据库字段）
+
 	// OIDC相关字段
 	Name          string `json:"name" gorm:"type:varchar(100)"`
 	Nickname      string `json:"nickname" gorm:"type:varchar(100)"`
@@ -74,12 +80,12 @@ func (u *User) BeforeUpdate(tx *gorm.DB) error {
 
 // ValidatePassword 验证密码
 func (u *User) ValidatePassword(password string) bool {
-	log.Printf("验证密码: 存储的哈希=%s, 输入的密码长度=%d", u.Password, len(password))
+	// 比较哈希和密码
 	err := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(password))
 	if err != nil {
-		log.Printf("密码验证失败: %v", err)
+		log.Printf("[DEBUG] [User %s] 密码验证失败: %v", u.ID, err)
 		return false
 	}
-	log.Printf("密码验证成功")
+	log.Printf("[DEBUG] [User %s] 密码验证成功", u.ID)
 	return true
 }

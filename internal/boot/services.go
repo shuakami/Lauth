@@ -13,6 +13,8 @@ import (
 	"lauth/pkg/engine"
 	"lauth/pkg/middleware"
 	"lauth/pkg/redis"
+
+	"gorm.io/gorm"
 )
 
 // Services 包含所有服务实例
@@ -32,13 +34,14 @@ type Services struct {
 	IPLocationService            service.IPLocationService
 	LoginLocationService         service.LoginLocationService
 	TokenService                 service.TokenService
+	SuperAdminService            service.SuperAdminService
 	PluginManager                types.Manager
 	PluginUserConfigRepo         repository.PluginUserConfigRepository
 	PluginVerificationRecordRepo repository.PluginVerificationRecordRepository
 }
 
 // InitServices 初始化所有服务实例
-func InitServices(cfg *config.Config, repos *Repositories, redisClient *redis.Client) (*Services, error) {
+func InitServices(cfg *config.Config, repos *Repositories, redisClient *redis.Client, db *gorm.DB) (*Services, error) {
 	// 初始化IP地理位置服务
 	ipLocationService := service.NewIPLocationService("data/ip2region/ip2region.xdb")
 
@@ -78,6 +81,9 @@ func InitServices(cfg *config.Config, repos *Repositories, redisClient *redis.Cl
 		return nil, err
 	}
 
+	// 初始化超级管理员服务
+	superAdminService := service.NewSuperAdminService(repos.SuperAdminRepo, repos.UserRepo, repos.AppRepo)
+
 	// 初始化基础服务
 	appService := service.NewAppService(repos.AppRepo)
 	fileService := service.NewFileService(repos.FileRepo)
@@ -85,8 +91,18 @@ func InitServices(cfg *config.Config, repos *Repositories, redisClient *redis.Cl
 	userService := service.NewUserService(repos.UserRepo, repos.AppRepo, profileService)
 	ruleService := service.NewRuleService(repos.RuleRepo, ruleEngine)
 	verificationService := service.NewVerificationService(pluginManager, repos.PluginStatusRepo, repos.VerificationSessionRepo)
-	authService := service.NewAuthService(repos.UserRepo, repos.AppRepo, tokenService, ruleService, verificationService, profileService, loginLocationService)
-	roleService := service.NewRoleService(repos.RoleRepo, repos.PermissionRepo)
+	authService := service.NewAuthService(
+		repos.UserRepo,
+		repos.AppRepo,
+		tokenService,
+		ruleService,
+		verificationService,
+		profileService,
+		loginLocationService,
+		superAdminService,
+		db,
+	)
+	roleService := service.NewRoleService(repos.RoleRepo, repos.PermissionRepo, superAdminService)
 	permissionService := service.NewPermissionService(repos.PermissionRepo, repos.RoleRepo)
 	oauthClientService := service.NewOAuthClientService(repos.OAuthClientRepo, repos.OAuthClientSecretRepo)
 
@@ -123,6 +139,7 @@ func InitServices(cfg *config.Config, repos *Repositories, redisClient *redis.Cl
 		IPLocationService:            ipLocationService,
 		LoginLocationService:         loginLocationService,
 		TokenService:                 tokenService,
+		SuperAdminService:            superAdminService,
 		PluginManager:                pluginManager,
 		PluginUserConfigRepo:         repos.PluginUserConfigRepo,
 		PluginVerificationRecordRepo: repos.PluginVerificationRecordRepo,

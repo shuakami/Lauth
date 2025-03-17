@@ -25,6 +25,7 @@ type Repositories struct {
 	LoginLocationRepo            repository.LoginLocationRepository
 	ProfileRepo                  repository.ProfileRepository
 	FileRepo                     repository.FileRepository
+	SuperAdminRepo               repository.SuperAdminRepository
 }
 
 // InitRepositories 初始化所有仓储实例
@@ -46,5 +47,6 @@ func InitRepositories(db *gorm.DB, mongodb *database.MongoClient) *Repositories 
 		LoginLocationRepo:            repository.NewLoginLocationRepository(db),
 		ProfileRepo:                  repository.NewProfileRepository(mongodb),
 		FileRepo:                     repository.NewFileRepository(mongodb),
+		SuperAdminRepo:               repository.NewSuperAdminRepository(db),
 	}
 }

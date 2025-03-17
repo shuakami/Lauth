@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"errors"
+	"log"
+	"time"
 
 	"lauth/internal/model"
 
@@ -18,6 +20,7 @@ type UserRepository interface {
 	Delete(ctx context.Context, id string) error
 	List(ctx context.Context, appID string, offset, limit int) ([]model.User, int64, error)
 	Count(ctx context.Context) (int64, error)
+	UpdateLastLogin(ctx context.Context, userID string, lastLoginTime time.Time) error
 }
 
 // userRepository 用户仓储实现
@@ -49,13 +52,17 @@ func (r *userRepository) GetByID(ctx context.Context, id string) (*model.User, e
 
 // GetByUsername 通过用户名获取用户
 func (r *userRepository) GetByUsername(ctx context.Context, appID, username string) (*model.User, error) {
+	log.Printf("[DEBUG] 尝试从数据库获取用户，AppID: %s, 用户名: %s", appID, username)
 	var user model.User
 	if err := r.db.WithContext(ctx).Where("app_id = ? AND username = ?", appID, username).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Printf("[DEBUG] 数据库中未找到用户: %s", username)
 			return nil, nil
 		}
+		log.Printf("[ERROR] 查询数据库时出错: %v", err)
 		return nil, err
 	}
+	log.Printf("[DEBUG] 成功从数据库获取用户: ID=%s, 用户名=%s", user.ID, user.Username)
 	return &user, nil
 }
 
@@ -101,4 +108,10 @@ func (r *userRepository) Count(ctx context.Context) (int64, error) {
 	var count int64
 	err := r.db.WithContext(ctx).Model(&model.User{}).Count(&count).Error
 	return count, err
+}
+
+// UpdateLastLogin 更新用户最后登录时间
+func (r *userRepository) UpdateLastLogin(ctx context.Context, userID string, lastLoginTime time.Time) error {
+	// 直接使用SQL更新，避免触发BeforeUpdate钩子
+	return r.db.WithContext(ctx).Model(&model.User{}).Where("id = ?", userID).UpdateColumn("last_login_at", lastLoginTime).Error
 }

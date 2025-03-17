@@ -26,13 +26,14 @@ type Handlers struct {
 	AuditHandler         *v1.AuditHandler
 	PluginHandler        *v1.PluginHandler
 	LoginLocationHandler *v1.LoginLocationHandler
+	SuperAdminHandler    *v1.SuperAdminHandler
 }
 
 // InitHandlers 初始化所有HTTP处理器
 func InitHandlers(services *Services, repos *Repositories, auditComponents *AuditComponents, cfg *config.Config) *Handlers {
 	return &Handlers{
 		AppHandler:           v1.NewAppHandler(services.AppService),
-		UserHandler:          v1.NewUserHandler(services.UserService, services.AuthService),
+		UserHandler:          v1.NewUserHandler(services.UserService, services.AuthService, services.SuperAdminService),
 		AuthHandler:          v1.NewAuthHandler(services.AuthService),
 		RoleHandler:          v1.NewRoleHandler(services.RoleService),
 		PermissionHandler:    v1.NewPermissionHandler(services.PermissionService),
@@ -51,6 +52,7 @@ func InitHandlers(services *Services, repos *Repositories, auditComponents *Audi
 			&cfg.SMTP,
 		),
 		LoginLocationHandler: v1.NewLoginLocationHandler(services.LoginLocationService),
+		SuperAdminHandler:    v1.NewSuperAdminHandler(services.SuperAdminService, services.UserService),
 	}
 }
 
@@ -62,9 +64,13 @@ func InitRouter(
 	ipLocationService service.IPLocationService,
 	auditComponents *AuditComponents,
 	cfg *config.Config,
+	services *Services,
 ) *router.Router {
 	// 初始化认证中间件
 	authMiddleware := middleware.NewAuthMiddleware(tokenService, cfg.Server.AuthEnabled)
+
+	// 初始化超级管理员中间件
+	superAdminMiddleware := middleware.NewSuperAdminMiddleware(tokenService, services.SuperAdminService)
 
 	// 初始化审计中间件
 	auditMiddleware := middleware.NewAuditMiddleware(
@@ -96,6 +102,8 @@ func InitRouter(
 		handlers.PluginHandler,
 		auditComponents.AuditPermissionMiddleware,
 		handlers.LoginLocationHandler,
+		handlers.SuperAdminHandler,
+		superAdminMiddleware,
 	)
 
 	// 注册所有路由

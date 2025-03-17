@@ -30,6 +30,8 @@ type Router struct {
 	pluginHandler             *v1.PluginHandler
 	auditPermissionMiddleware *audit.AuditPermissionMiddleware
 	loginLocationHandler      *v1.LoginLocationHandler
+	superAdminHandler         *v1.SuperAdminHandler
+	superAdminMiddleware      *middleware.SuperAdminMiddleware
 }
 
 // NewRouter 创建路由管理器实例
@@ -51,6 +53,8 @@ func NewRouter(
 	pluginHandler *v1.PluginHandler,
 	auditPermissionMiddleware *audit.AuditPermissionMiddleware,
 	loginLocationHandler *v1.LoginLocationHandler,
+	superAdminHandler *v1.SuperAdminHandler,
+	superAdminMiddleware *middleware.SuperAdminMiddleware,
 ) *Router {
 	return &Router{
 		engine:                    engine,
@@ -70,6 +74,8 @@ func NewRouter(
 		pluginHandler:             pluginHandler,
 		auditPermissionMiddleware: auditPermissionMiddleware,
 		loginLocationHandler:      loginLocationHandler,
+		superAdminHandler:         superAdminHandler,
+		superAdminMiddleware:      superAdminMiddleware,
 	}
 }
 
@@ -111,6 +117,8 @@ func (r *Router) RegisterRoutes() {
 		r.registerPluginRoutes(api)
 		// 注册登录位置相关路由
 		r.registerLoginLocationRoutes(api)
+		// 注册超级管理员相关路由
+		r.registerSuperAdminRoutes(api)
 	}
 
 	// OIDC发现端点（必须在根路径）
@@ -132,13 +140,16 @@ func (r *Router) registerAuthRoutes(group *gin.RouterGroup) {
 
 // registerAppRoutes 注册应用相关路由
 func (r *Router) registerAppRoutes(group *gin.RouterGroup) {
-	apps := group.Group("/apps")
+	appsGroup := group.Group("/apps")
+	// 添加超级管理员权限检查 - 创建、更新和删除应用需要超级管理员权限
+	appsGroup.POST("", r.superAdminMiddleware.CheckSuperAdmin(), r.appHandler.CreateApp)
+	appsGroup.PUT("/:id", r.superAdminMiddleware.CheckSuperAdmin(), r.appHandler.UpdateApp)
+	appsGroup.DELETE("/:id", r.superAdminMiddleware.CheckSuperAdmin(), r.appHandler.DeleteApp)
+	// 以下API允许普通认证用户访问
+	appsGroup.Use(r.authMiddleware.HandleAuth())
 	{
-		apps.POST("", r.authMiddleware.HandleAuth(), r.appHandler.CreateApp)
-		apps.GET("", r.authMiddleware.HandleAuth(), r.appHandler.ListApps)
-		apps.GET("/:id", r.authMiddleware.HandleAuth(), r.appHandler.GetApp)
-		apps.PUT("/:id", r.authMiddleware.HandleAuth(), r.appHandler.UpdateApp)
-		apps.DELETE("/:id", r.authMiddleware.HandleAuth(), r.appHandler.DeleteApp)
+		appsGroup.GET("", r.appHandler.ListApps)
+		appsGroup.GET("/:id", r.appHandler.GetApp)
 	}
 }
 
@@ -166,7 +177,9 @@ func (r *Router) registerUserRoutes(group *gin.RouterGroup) {
 
 // registerPermissionRoutes 注册权限相关路由
 func (r *Router) registerPermissionRoutes(group *gin.RouterGroup) {
-	r.permissionHandler.Register(group, r.authMiddleware)
+	permissions := group.Group("/permissions")
+	permissions.Use(r.superAdminMiddleware.CheckSuperAdmin())
+	r.permissionHandler.Register(permissions, r.authMiddleware)
 }
 
 // registerRoleRoutes 注册角色相关路由
@@ -176,12 +189,16 @@ func (r *Router) registerRoleRoutes(group *gin.RouterGroup) {
 
 // registerRuleRoutes 注册规则相关路由
 func (r *Router) registerRuleRoutes(group *gin.RouterGroup) {
-	r.ruleHandler.Register(group, r.authMiddleware)
+	rules := group.Group("/rules")
+	rules.Use(r.superAdminMiddleware.CheckSuperAdmin())
+	r.ruleHandler.Register(rules, r.authMiddleware)
 }
 
 // registerOAuthRoutes 注册OAuth相关路由
 func (r *Router) registerOAuthRoutes(group *gin.RouterGroup) {
-	r.oauthClientHandler.Register(group, r.authMiddleware)
+	oauth := group.Group("/oauth")
+	oauth.Use(r.superAdminMiddleware.CheckSuperAdmin())
+	r.oauthClientHandler.Register(oauth, r.authMiddleware)
 }
 
 // registerAuthorizationRoutes 注册OAuth授权相关路由
@@ -207,8 +224,8 @@ func (r *Router) registerOIDCRoutes(group *gin.RouterGroup) {
 // registerAuditRoutes 注册审计相关路由
 func (r *Router) registerAuditRoutes(group *gin.RouterGroup) {
 	audit := group.Group("/audit")
-	audit.Use(r.authMiddleware.HandleAuth())
-	audit.Use(r.auditPermissionMiddleware.Handle())
+	// 超级管理员权限检查
+	audit.Use(r.superAdminMiddleware.CheckSuperAdmin())
 	{
 		audit.GET("/logs", r.auditHandler.GetLogs)
 		audit.GET("/logs/verify", r.auditHandler.VerifyLogFile)
@@ -486,4 +503,21 @@ func (r *Router) registerPluginRoutes(group *gin.RouterGroup) {
 // registerLoginLocationRoutes 注册登录位置相关路由
 func (r *Router) registerLoginLocationRoutes(group *gin.RouterGroup) {
 	r.loginLocationHandler.Register(group, r.authMiddleware)
+}
+
+// registerSuperAdminRoutes 注册超级管理员相关路由
+func (r *Router) registerSuperAdminRoutes(group *gin.RouterGroup) {
+	// 需要超级管理员权限的路由
+	systemGroup := group.Group("/system")
+	systemGroup.Use(r.authMiddleware.HandleAuth())
+
+	// 超级管理员相关API
+	superAdminGroup := systemGroup.Group("/super-admins")
+	superAdminGroup.Use(r.superAdminMiddleware.CheckSuperAdmin())
+	{
+		superAdminGroup.POST("", r.superAdminHandler.AddSuperAdmin)
+		superAdminGroup.GET("", r.superAdminHandler.ListSuperAdmins)
+		superAdminGroup.DELETE("/:user_id", r.superAdminHandler.RemoveSuperAdmin)
+		superAdminGroup.GET("/check/:user_id", r.superAdminHandler.CheckSuperAdmin)
+	}
 }
