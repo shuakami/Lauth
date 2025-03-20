@@ -1,7 +1,7 @@
 module lauth
 
 go 1.21.6
-toolchain go1.23.7
+toolchain go1.24.1
 
 require (
 	github.com/fatih/color v1.18.0
@@ -13,7 +13,7 @@ require (
 	github.com/lionsoul2014/ip2region/binding/golang v0.0.0-20241220152942-06eb5c6e8230
 	github.com/olekukonko/tablewriter v0.0.5
 	github.com/pquerna/otp v1.4.0
-	github.com/redis/go-redis/v9 v9.7.0
+	github.com/redis/go-redis/v9 v9.7.3
 	github.com/spf13/viper v1.19.0
 	go.mongodb.org/mongo-driver v1.17.2
 	golang.org/x/crypto v0.35.0
